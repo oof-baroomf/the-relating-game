@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="A daily semantic word path game using cosine similarity."
+    >
+    <title>The Relating Game</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://huggingface.co">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Daily semantic path</p>
+        <h1>The Relating Game</h1>
+      </div>
+      <div class="status-pill" id="modelStatus">Loading words</div>
+    </header>
+
+    <main class="shell">
+      <nav class="mode-row" aria-label="Puzzle type">
+        <button class="segmented active" type="button" data-kind="daily">Daily</button>
+        <button class="segmented" type="button" data-kind="random">Random</button>
+        <button class="segmented" type="button" data-kind="archive">Archive</button>
+      </nav>
+
+      <section class="control-strip" aria-label="Game controls">
+        <div class="difficulty" role="group" aria-label="Difficulty">
+          <button class="chip active" type="button" data-mode="easy">Easy</button>
+          <button class="chip" type="button" data-mode="hard">Hard</button>
+        </div>
+
+        <div class="date-controls" id="dateControls">
+          <button class="icon-button" id="previousDay" type="button" aria-label="Previous day">‹</button>
+          <input id="archiveDate" type="date" aria-label="Archive date">
+          <button class="icon-button" id="nextDay" type="button" aria-label="Next day">›</button>
+        </div>
+
+        <button class="quiet-button" id="newRandom" type="button">New random</button>
+      </section>
+
+      <section class="game-board" aria-live="polite">
+        <div class="word-grid">
+          <div class="word-tile">
+            <span>Start</span>
+            <strong id="startWord">...</strong>
+          </div>
+          <div class="word-tile target">
+            <span>Target</span>
+            <strong id="targetWord">...</strong>
+          </div>
+        </div>
+
+        <div class="meter-block">
+          <div class="meter-label">
+            <span>Current gap to target</span>
+            <strong id="targetGap">...</strong>
+          </div>
+          <div class="meter" aria-hidden="true">
+            <span id="targetGapBar"></span>
+          </div>
+        </div>
+
+        <form class="guess-form" id="guessForm" autocomplete="off">
+          <label class="sr-only" for="guessInput">Next word</label>
+          <input
+            id="guessInput"
+            name="guess"
+            type="text"
+            inputmode="text"
+            placeholder="Enter a dictionary word"
+            maxlength="15"
+            disabled
+          >
+          <button id="submitGuess" type="submit" disabled>Try</button>
+        </form>
+
+        <p class="message" id="message">Preparing today's puzzle.</p>
+
+        <div class="rule-line">
+          <span id="puzzleLabel">Daily</span>
+          <span id="limitLabel">Gap limit: ...</span>
+          <span id="stepLabel">0 steps</span>
+        </div>
+      </section>
+
+      <section class="path-section">
+        <div class="section-header">
+          <h2>Path</h2>
+          <div class="toolbar">
+            <button class="quiet-button" id="undoStep" type="button" disabled>Undo</button>
+            <button class="quiet-button" id="resetGame" type="button" disabled>Reset</button>
+            <button class="quiet-button" id="shareResult" type="button" disabled>Share</button>
+          </div>
+        </div>
+        <ol class="path-list" id="pathList"></ol>
+      </section>
+
+      <section class="stats-section">
+        <div>
+          <span class="stat-label">Played</span>
+          <strong id="playedStat">0</strong>
+        </div>
+        <div>
+          <span class="stat-label">Wins</span>
+          <strong id="winsStat">0</strong>
+        </div>
+        <div>
+          <span class="stat-label">Best</span>
+          <strong id="bestStat">-</strong>
+        </div>
+        <div>
+          <span class="stat-label">Average</span>
+          <strong id="avgStat">-</strong>
+        </div>
+      </section>
+
+      <details class="rules">
+        <summary>Rules</summary>
+        <p>
+          Move from the start word to the target word. Each submitted step must
+          keep semantic gap, measured as 1 minus cosine similarity, at or below
+          the current limit. Guesses must be single words from the game
+          dictionary.
+        </p>
+      </details>
+    </main>
+
+    <dialog id="resultDialog">
+      <div class="dialog-body">
+        <h2 id="resultTitle">Solved</h2>
+        <p id="resultText"></p>
+        <div class="dialog-actions">
+          <button class="quiet-button" id="dialogShare" type="button">Share</button>
+          <button id="dialogClose" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

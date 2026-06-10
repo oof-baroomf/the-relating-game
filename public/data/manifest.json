@@ -1,0 +1,9 @@
+{
+  "dictionaryWords": 168551,
+  "cachedWords": 8073,
+  "endpointWords": 5000,
+  "subwords": 50701,
+  "dim": 50,
+  "dictionarySource": "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt",
+  "nounSource": "https://raw.githubusercontent.com/david47k/top-english-wordlists/master/top_english_nouns_lower_500000.txt"
+}
