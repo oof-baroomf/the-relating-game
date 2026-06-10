@@ -10,8 +10,8 @@ const START_DATE = "2026-06-10";
 const MAX_STEPS = 10;
 
 const MODES = {
-  easy: { label: "Easy", gapDivisor: 2 },
-  hard: { label: "Hard", gapDivisor: 3 },
+  easy: { label: "Easy", gapDivisor: 1.5 },
+  hard: { label: "Hard", gapDivisor: 2 },
 };
 
 const TARGET_PAIR_GAP = 0.9;

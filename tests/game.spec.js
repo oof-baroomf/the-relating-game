@@ -21,7 +21,7 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
   await expect(page.locator("#modelStatus")).toHaveText("Ready");
 
   await page.getByRole("button", { name: "Hard" }).click();
-  await expect(page.locator("#limitLabel")).toContainText("Hard move limit: 0.33");
+  await expect(page.locator("#limitLabel")).toContainText("Hard move limit: 0.50");
   await expect(page.locator("#guessInput")).toBeFocused();
 
   await page.locator("#guessInput").fill("bridge");
