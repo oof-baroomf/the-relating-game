@@ -3,13 +3,12 @@ import winkEmbeddings from "wink-embeddings-small-en-50d";
 
 const ENABLE_URL =
   "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt";
-const NOUN_URL =
-  "https://raw.githubusercontent.com/david47k/top-english-wordlists/master/top_english_nouns_lower_500000.txt";
 
 const OUT_DIR = new URL("../public/data/", import.meta.url);
 const DIM = 50;
 const SCALE = 127;
 const MAX_SUBWORDS = 60000;
+const COMMON_ENDPOINT_EXCLUSION = 3000;
 const MIN_NGRAM = 3;
 const MAX_NGRAM = 6;
 
@@ -68,10 +67,7 @@ async function fetchText(url) {
 }
 
 async function main() {
-  const [dictionaryText, nounsText] = await Promise.all([
-    fetchText(ENABLE_URL),
-    fetchText(NOUN_URL),
-  ]);
+  const dictionaryText = await fetchText(ENABLE_URL);
 
   const dictionaryWords = [...new Set(
     dictionaryText
@@ -81,7 +77,7 @@ async function main() {
   )].sort();
   const dictionarySet = new Set(dictionaryWords);
 
-  const directEntries = Object.entries(embeddings)
+  const rankedDirectEntries = Object.entries(embeddings)
     .map(([word, vector]) => [cleanWord(word), vector])
     .filter(
       ([word, vector]) =>
@@ -90,25 +86,15 @@ async function main() {
         Array.isArray(vector) &&
         vector.length === DIM,
     )
-    .map(([word, vector]) => [word, normalizeVector(vector)])
+    .map(([word, vector]) => [word, normalizeVector(vector)]);
+
+  const directEntries = [...rankedDirectEntries]
     .sort(([left], [right]) => left.localeCompare(right));
 
-  const directMap = new Map(directEntries);
-  const endpointWords = [];
-  const seenEndpoints = new Set();
-  for (const raw of nounsText.split(/\r?\n/)) {
-    const word = cleanWord(raw);
-    if (
-      isEndpointWord(word) &&
-      dictionarySet.has(word) &&
-      directMap.has(word) &&
-      !seenEndpoints.has(word)
-    ) {
-      seenEndpoints.add(word);
-      endpointWords.push(word);
-    }
-    if (endpointWords.length >= 5000) break;
-  }
+  const endpointWords = rankedDirectEntries
+    .slice(COMMON_ENDPOINT_EXCLUSION)
+    .map(([word]) => word)
+    .filter(isEndpointWord);
 
   const gramCounts = new Map();
   for (const [word] of directEntries) {
@@ -186,10 +172,10 @@ async function main() {
         dictionaryWords: dictionaryWords.length,
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
+        commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
         subwords: selectedGrams.length,
         dim: DIM,
         dictionarySource: ENABLE_URL,
-        nounSource: NOUN_URL,
       },
       null,
       2,
@@ -202,6 +188,7 @@ async function main() {
         dictionaryWords: dictionaryWords.length,
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
+        commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
         subwords: selectedGrams.length,
       },
       null,
