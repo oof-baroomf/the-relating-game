@@ -10,7 +10,7 @@ const MAX_STEPS = 10;
 
 const MODES = {
   easy: { label: "Easy", gapDivisor: 2 },
-  hard: { label: "Hard", gapDivisor: 4 },
+  hard: { label: "Hard", gapDivisor: 3 },
 };
 
 const TARGET_PAIR_GAP = 0.82;
