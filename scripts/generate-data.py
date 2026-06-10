@@ -14,6 +14,7 @@ import numpy as np
 ENABLE_URL = "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt"
 FREQUENCY_URL = "https://raw.githubusercontent.com/possibly-wrong/word-frequency/main/word-frequency.txt"
 FASTTEXT_URL = "https://dl.fbaipublicfiles.com/fasttext/vectors-english/wiki-news-300d-1M-subword.bin.zip"
+BLOCKLIST_URL = "https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en"
 FASTTEXT_ZIP_NAME = "wiki-news-300d-1M-subword.bin.zip"
 FASTTEXT_BIN_NAME = "wiki-news-300d-1M-subword.bin"
 
@@ -23,6 +24,7 @@ VECTOR_DIR = OUT_DIR / "vectors"
 CACHE_DIR = ROOT_DIR / ".cache" / "fasttext"
 MODEL_ZIP = CACHE_DIR / FASTTEXT_ZIP_NAME
 MODEL_BIN = CACHE_DIR / FASTTEXT_BIN_NAME
+BLOCKLIST_SUPPLEMENT_PATH = ROOT_DIR / "scripts" / "nsfw-supplement.txt"
 
 ENDPOINT_MIN_FREQUENCY_RANK = 2500
 ENDPOINT_MAX_FREQUENCY_RANK = 12000
@@ -70,6 +72,20 @@ def normalized_vector(model, word):
     return (vector / norm).astype("<f4", copy=False)
 
 
+def load_blocked_words(dictionary_set):
+    source_words = {
+        clean_word(word)
+        for word in fetch_text(BLOCKLIST_URL).splitlines()
+        if WORD_RE.fullmatch(clean_word(word))
+    }
+    supplement_words = {
+        clean_word(word)
+        for word in BLOCKLIST_SUPPLEMENT_PATH.read_text(encoding="utf-8").splitlines()
+        if WORD_RE.fullmatch(clean_word(word))
+    }
+    return sorted((source_words | supplement_words) & dictionary_set)
+
+
 def main():
     ensure_model()
 
@@ -84,6 +100,8 @@ def main():
         }
     )
     dictionary_set = set(dictionary_words)
+    blocked_words = load_blocked_words(dictionary_set)
+    blocked_set = set(blocked_words)
 
     frequency_rows = [
         (index + 1, clean_word(line.split("\t", 1)[0]))
@@ -95,6 +113,7 @@ def main():
             for rank, word in frequency_rows
             if ENDPOINT_MIN_FREQUENCY_RANK <= rank <= ENDPOINT_MAX_FREQUENCY_RANK
             and word in dictionary_set
+            and word not in blocked_set
             and ENDPOINT_RE.fullmatch(word)
         )
     )
@@ -132,6 +151,10 @@ def main():
         json.dumps({"words": endpoint_words}, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
+    (OUT_DIR / "blocked-words.json").write_text(
+        json.dumps({"words": blocked_words}, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     (OUT_DIR / "lexicon.json").write_text(
         json.dumps(
             {
@@ -153,12 +176,15 @@ def main():
                 "endpointWords": len(endpoint_words),
                 "endpointMinFrequencyRank": ENDPOINT_MIN_FREQUENCY_RANK,
                 "endpointMaxFrequencyRank": ENDPOINT_MAX_FREQUENCY_RANK,
+                "blockedWords": len(blocked_words),
                 "vectorWords": len(dictionary_words),
                 "vectorDim": dim,
                 "vectorShardSize": VECTOR_SHARD_SIZE,
                 "vectorShards": len(shard_paths),
                 "dictionarySource": ENABLE_URL,
                 "frequencySource": FREQUENCY_URL,
+                "blocklistSource": BLOCKLIST_URL,
+                "blocklistSupplement": str(BLOCKLIST_SUPPLEMENT_PATH.relative_to(ROOT_DIR)),
                 "vectorSource": FASTTEXT_URL,
             },
             indent=2,

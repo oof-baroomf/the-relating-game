@@ -90,6 +90,19 @@
           <span id="limitLabel">Gap limit: ...</span>
           <span id="stepLabel">0/10</span>
         </div>
+
+        <section class="result-panel" id="resultPanel" hidden>
+          <div class="section-header">
+            <h2 id="resultTitle">Solved</h2>
+            <button class="quiet-button" id="shareResult" type="button">Share</button>
+          </div>
+          <p id="resultText"></p>
+          <p id="resultSolution"></p>
+          <div class="share-row" id="shareRow" hidden>
+            <input id="shareText" type="text" readonly aria-label="Share score">
+            <button id="copyShare" type="button">Copy</button>
+          </div>
+        </section>
       </section>
 
       <section class="path-section">
@@ -99,12 +112,7 @@
             <button class="quiet-button" id="undoStep" type="button" disabled>Undo</button>
             <button class="quiet-button" id="resetGame" type="button" disabled>Reset</button>
             <button class="quiet-button" id="giveUp" type="button" disabled>Give up</button>
-            <button class="quiet-button" id="shareResult" type="button" disabled>Share</button>
           </div>
-        </div>
-        <div class="share-row" id="shareRow" hidden>
-          <input id="shareText" type="text" readonly aria-label="Share score">
-          <button id="copyShare" type="button">Copy</button>
         </div>
         <table class="guess-table">
           <thead>
@@ -168,18 +176,6 @@
         </p>
       </details>
     </main>
-
-    <dialog id="resultDialog">
-      <div class="dialog-body">
-        <h2 id="resultTitle">Solved</h2>
-        <p id="resultText"></p>
-        <p id="resultSolution"></p>
-        <div class="dialog-actions">
-          <button class="quiet-button" id="dialogShare" type="button">Share</button>
-          <button id="dialogClose" type="button">Close</button>
-        </div>
-      </div>
-    </dialog>
 
     <script type="module" src="./app.js"></script>
   </body>

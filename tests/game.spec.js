@@ -32,7 +32,7 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
   await page.locator("#guessInput").fill("dog");
   await page.keyboard.press("Enter");
 
-  await expect(page.locator("#resultDialog")).toBeVisible();
+  await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultText")).toContainText("Hard 2/10");
   await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
   await expect(page.locator("#solutionSection")).toBeVisible();
@@ -60,6 +60,16 @@ test("rejects guesses outside the dictionary", async ({ page }) => {
   await page.getByRole("button", { name: "Try" }).click();
 
   await expect(page.locator("#message")).toContainText("not in the game dictionary");
+  await expect(page.locator(".path-row")).toHaveCount(1);
+});
+
+test("rejects blocked words", async ({ page }) => {
+  await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
+
+  await page.locator("#guessInput").fill("sexuality");
+  await page.getByRole("button", { name: "Try" }).click();
+
+  await expect(page.locator("#message")).toContainText("not allowed");
   await expect(page.locator(".path-row")).toHaveCount(1);
 });
 
@@ -95,7 +105,7 @@ test("give up ends the game and reveals RelateBot's solution", async ({ page }) 
   await expect(page.getByRole("button", { name: "Bot fight" })).toHaveCount(0);
   await page.getByRole("button", { name: "Give up" }).click();
 
-  await expect(page.locator("#resultDialog")).toBeVisible();
+  await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultTitle")).toHaveText("Gave up");
   await expect(page.locator("#resultText")).toContainText("Easy X/10");
   await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
@@ -144,18 +154,25 @@ test("uses real fastText vectors for generated endpoint words", async ({ request
 test("endpoint data uses a specific but recognizable frequency band", async ({ request }) => {
   const manifestResponse = await request.get("/data/manifest.json");
   const endpointsResponse = await request.get("/data/endpoints.json");
+  const blockedResponse = await request.get("/data/blocked-words.json");
   expect(manifestResponse.ok()).toBeTruthy();
   expect(endpointsResponse.ok()).toBeTruthy();
+  expect(blockedResponse.ok()).toBeTruthy();
 
   const manifest = await manifestResponse.json();
   const endpoints = await endpointsResponse.json();
+  const blocked = await blockedResponse.json();
   expect(manifest.endpointMinFrequencyRank).toBe(2500);
   expect(manifest.endpointMaxFrequencyRank).toBe(12000);
+  expect(manifest.blockedWords).toBe(blocked.words.length);
   expect(manifest.vectorDim).toBe(300);
   expect(manifest.vectorWords).toBe(manifest.dictionaryWords);
   expect(endpoints.words.length).toBe(manifest.endpointWords);
 
-  for (const word of ["the", "time", "people", "world", "water", "system", "plats"]) {
+  for (const word of ["the", "time", "people", "world", "water", "system", "plats", "sexuality"]) {
     expect(endpoints.words).not.toContain(word);
+  }
+  for (const word of endpoints.words) {
+    expect(blocked.words).not.toContain(word);
   }
 });

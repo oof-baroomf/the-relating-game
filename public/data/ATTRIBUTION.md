@@ -15,3 +15,8 @@ and sorted by decreasing 2020 frequency.
 `wiki-news-300d-1M-subword.bin`, the official fastText English word-vector model
 distributed at https://fasttext.cc/docs/en/english-vectors.html. Every accepted
 dictionary word has a precomputed 300-dimensional vector from that model.
+
+`blocked-words.json` is generated from the English list in Shutterstock's
+LDNOOBW project at
+https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words,
+plus the local supplement in `scripts/nsfw-supplement.txt`.

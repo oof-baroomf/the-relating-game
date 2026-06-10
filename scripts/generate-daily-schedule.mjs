@@ -102,9 +102,18 @@ async function main() {
   const endpoints = JSON.parse(
     await readFile(path.join(rootDir, "public", "data", "endpoints.json"), "utf8"),
   ).words;
+  const blockedWords = new Set(
+    JSON.parse(await readFile(path.join(rootDir, "public", "data", "blocked-words.json"), "utf8"))
+      .words,
+  );
   const lexicon = JSON.parse(
     await readFile(path.join(rootDir, "public", "data", "lexicon.json"), "utf8"),
   );
+  for (const word of endpoints) {
+    if (blockedWords.has(word)) {
+      throw new Error(`Endpoint word "${word}" is blocked.`);
+    }
+  }
   const shardBuffers = await Promise.all(
     lexicon.shards.map((shardPath) => readFile(path.join(rootDir, "public", shardPath))),
   );

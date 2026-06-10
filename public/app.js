@@ -1,4 +1,5 @@
 const DICTIONARY_URL = "./data/dictionary.txt";
+const BLOCKED_WORDS_URL = "./data/blocked-words.json";
 const ENDPOINTS_URL = "./data/endpoints.json";
 const LEXICON_URL = "./data/lexicon.json";
 const MANIFEST_URL = "./data/manifest.json";
@@ -56,15 +57,14 @@ const elements = {
   winsStat: document.querySelector("#winsStat"),
   bestStat: document.querySelector("#bestStat"),
   avgStat: document.querySelector("#avgStat"),
-  resultDialog: document.querySelector("#resultDialog"),
+  resultPanel: document.querySelector("#resultPanel"),
   resultTitle: document.querySelector("#resultTitle"),
   resultText: document.querySelector("#resultText"),
   resultSolution: document.querySelector("#resultSolution"),
-  dialogShare: document.querySelector("#dialogShare"),
-  dialogClose: document.querySelector("#dialogClose"),
 };
 
 let dictionary = new Set();
+let blockedWords = new Set();
 let endpoints = [];
 let manifest = null;
 let vectorWords = new Map();
@@ -183,6 +183,10 @@ function normalizeTerm(value) {
 
 function isWordShape(term) {
   return /^[a-z]{2,15}$/.test(term);
+}
+
+function isBlockedWord(term) {
+  return blockedWords.has(term);
 }
 
 function hashString(input) {
@@ -340,8 +344,14 @@ function persistRecord() {
 async function loadGameData() {
   setStatus("Loading");
   const requests = USE_MOCK_MODEL
-    ? [fetch(DICTIONARY_URL), fetch(ENDPOINTS_URL), fetch(MANIFEST_URL)]
-    : [fetch(DICTIONARY_URL), fetch(ENDPOINTS_URL), fetch(LEXICON_URL), fetch(MANIFEST_URL)];
+    ? [fetch(DICTIONARY_URL), fetch(BLOCKED_WORDS_URL), fetch(ENDPOINTS_URL), fetch(MANIFEST_URL)]
+    : [
+        fetch(DICTIONARY_URL),
+        fetch(BLOCKED_WORDS_URL),
+        fetch(ENDPOINTS_URL),
+        fetch(LEXICON_URL),
+        fetch(MANIFEST_URL),
+      ];
   const responses = await Promise.all(requests);
 
   for (const response of responses) {
@@ -350,15 +360,22 @@ async function loadGameData() {
     }
   }
 
-  const [dictionaryResponse, endpointsResponse, thirdResponse, fourthResponse] = responses;
+  const [
+    dictionaryResponse,
+    blockedWordsResponse,
+    endpointsResponse,
+    fourthResponse,
+    fifthResponse,
+  ] = responses;
   const dictionaryText = await dictionaryResponse.text();
   dictionary = new Set(dictionaryText.split(/\r?\n/).filter(Boolean));
+  blockedWords = new Set((await blockedWordsResponse.json()).words);
   loadEndpointTable(await endpointsResponse.json());
   if (USE_MOCK_MODEL) {
-    manifest = await thirdResponse.json();
-  } else {
     manifest = await fourthResponse.json();
-    await loadVectorTable(await thirdResponse.json());
+  } else {
+    manifest = await fifthResponse.json();
+    await loadVectorTable(await fourthResponse.json());
   }
 
   if (dictionary.size < 1000 || (!USE_MOCK_MODEL && endpoints.length < 100) || !manifest) {
@@ -508,8 +525,25 @@ function render() {
     ),
   );
 
+  renderResult();
   renderSolution();
   renderStats();
+}
+
+function renderResult() {
+  elements.resultPanel.hidden = !currentRecord.done;
+  if (!currentRecord.done) {
+    elements.resultText.textContent = "";
+    return;
+  }
+
+  elements.resultTitle.textContent =
+    currentRecord.status === "won"
+      ? "Solved"
+      : currentRecord.status === "gave-up"
+        ? "Gave up"
+        : "Game over";
+  elements.resultText.textContent = buildShareText();
 }
 
 function renderSolution() {
@@ -629,6 +663,11 @@ async function handleGuessSubmit(event) {
     focusGuessInput();
     return;
   }
+  if (isBlockedWord(term)) {
+    setMessage("That word is not allowed in this game.", "error");
+    focusGuessInput();
+    return;
+  }
   if (term === previous) {
     setMessage("That is already your current word.", "error");
     focusGuessInput();
@@ -670,10 +709,8 @@ async function handleGuessSubmit(event) {
 
     if (term === currentPuzzle.target) {
       finishGame("won", "Solved.");
-      showResultDialog();
     } else if (currentRecord.path.length - 1 >= MAX_STEPS) {
       finishGame("lost", "Out of steps.");
-      showResultDialog();
     } else {
       setMessage(
         `Accepted. Target gap is ${targetScore.gap.toFixed(2)} (${proximityLabel(
@@ -687,6 +724,7 @@ async function handleGuessSubmit(event) {
     render();
     updateTargetGap();
     if (currentRecord.done) {
+      showResult();
       revealRelateBotSolution();
     }
   } catch (error) {
@@ -791,7 +829,12 @@ async function scanNeighborIndices(baseIndex, minSimilarity) {
   const baseVector = getLocalVectorByIndex(baseIndex);
   const neighbors = [];
   for (let index = 0; index < vectorWordList.length; index += 1) {
-    if (index !== baseIndex && dotSimilarity(baseVector, getLocalVectorByIndex(index)) >= minSimilarity) {
+    const word = vectorWordList[index];
+    if (
+      index !== baseIndex &&
+      !isBlockedWord(word) &&
+      dotSimilarity(baseVector, getLocalVectorByIndex(index)) >= minSimilarity
+    ) {
       neighbors.push(index);
     }
   }
@@ -820,7 +863,7 @@ async function findGreedyRelateBotPath() {
 
     for (let index = 0; index < vectorWordList.length; index += 1) {
       const word = vectorWordList[index];
-      if (used.has(word) || word === currentPuzzle.target) continue;
+      if (used.has(word) || word === currentPuzzle.target || isBlockedWord(word)) continue;
 
       const vector = getLocalVectorByIndex(index);
       const stepGap = Math.max(0, 1 - dotSimilarity(fromVector, vector));
@@ -878,17 +921,10 @@ function finishGame(status, message) {
   setMessage(message, status === "won" ? "success" : "error");
 }
 
-function showResultDialog() {
-  elements.resultTitle.textContent =
-    currentRecord.status === "won"
-      ? "Solved"
-      : currentRecord.status === "gave-up"
-        ? "Gave up"
-        : "Game over";
-  elements.resultText.textContent = buildShareText();
-  if (typeof elements.resultDialog.showModal === "function") {
-    elements.resultDialog.showModal();
-  }
+function showResult() {
+  requestAnimationFrame(() => {
+    elements.resultPanel.scrollIntoView({ block: "nearest" });
+  });
 }
 
 async function giveUp() {
@@ -896,7 +932,7 @@ async function giveUp() {
   finishGame("gave-up", "Gave up.");
   persistRecord();
   render();
-  showResultDialog();
+  showResult();
   await revealRelateBotSolution();
 }
 
@@ -1023,8 +1059,6 @@ function wireEvents() {
   elements.giveUp.addEventListener("click", giveUp);
   elements.shareResult.addEventListener("click", shareCurrentResult);
   elements.copyShare.addEventListener("click", shareCurrentResult);
-  elements.dialogShare.addEventListener("click", shareCurrentResult);
-  elements.dialogClose.addEventListener("click", () => elements.resultDialog.close());
 }
 
 async function init() {

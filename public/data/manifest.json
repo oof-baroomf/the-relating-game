@@ -1,13 +1,16 @@
 {
   "dictionaryWords": 168551,
-  "endpointWords": 6646,
+  "endpointWords": 6630,
   "endpointMinFrequencyRank": 2500,
   "endpointMaxFrequencyRank": 12000,
+  "blockedWords": 168,
   "vectorWords": 168551,
   "vectorDim": 300,
   "vectorShardSize": 20000,
   "vectorShards": 9,
   "dictionarySource": "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt",
   "frequencySource": "https://raw.githubusercontent.com/possibly-wrong/word-frequency/main/word-frequency.txt",
+  "blocklistSource": "https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en",
+  "blocklistSupplement": "scripts/nsfw-supplement.txt",
   "vectorSource": "https://dl.fbaipublicfiles.com/fasttext/vectors-english/wiki-news-300d-1M-subword.bin.zip"
 }
