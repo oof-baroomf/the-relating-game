@@ -1,8 +1,9 @@
 {
   "dictionaryWords": 168551,
   "cachedWords": 8073,
-  "endpointWords": 4000,
-  "commonEndpointExclusion": 400000,
+  "endpointWords": 26380,
+  "endpointMinFrequencyRank": 10000,
+  "endpointMaxFrequencyRank": 45000,
   "frequencySource": "https://raw.githubusercontent.com/possibly-wrong/word-frequency/main/word-frequency.txt",
   "subwords": 50701,
   "dim": 50,

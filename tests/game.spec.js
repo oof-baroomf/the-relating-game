@@ -98,7 +98,7 @@ test("embeds uncached dictionary words through the Pages Function", async ({ req
   expect(payload.vector.some((value) => value !== 0)).toBeTruthy();
 });
 
-test("endpoint data excludes the large common-word band", async ({ request }) => {
+test("endpoint data uses a specific but recognizable frequency band", async ({ request }) => {
   const manifestResponse = await request.get("/data/manifest.json");
   const endpointsResponse = await request.get("/data/endpoints.json");
   expect(manifestResponse.ok()).toBeTruthy();
@@ -106,11 +106,12 @@ test("endpoint data excludes the large common-word band", async ({ request }) =>
 
   const manifest = await manifestResponse.json();
   const endpoints = await endpointsResponse.json();
-  expect(manifest.commonEndpointExclusion).toBeGreaterThanOrEqual(400000);
+  expect(manifest.endpointMinFrequencyRank).toBe(10000);
+  expect(manifest.endpointMaxFrequencyRank).toBe(45000);
   expect(endpoints.words.length).toBe(manifest.endpointWords);
   expect(endpoints.vectors.length).toBeGreaterThan(endpoints.words.length);
 
-  for (const word of ["the", "time", "people", "world", "water", "system"]) {
+  for (const word of ["the", "time", "people", "world", "water", "system", "zyzzyvas"]) {
     expect(endpoints.words).not.toContain(word);
   }
 });

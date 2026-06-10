@@ -10,7 +10,8 @@ const OUT_DIR = new URL("../public/data/", import.meta.url);
 const DIM = 50;
 const SCALE = 127;
 const MAX_SUBWORDS = 60000;
-const COMMON_ENDPOINT_EXCLUSION = 400000;
+const ENDPOINT_MIN_FREQUENCY_RANK = 10000;
+const ENDPOINT_MAX_FREQUENCY_RANK = 45000;
 const MIN_NGRAM = 3;
 const MAX_NGRAM = 6;
 
@@ -25,7 +26,7 @@ function isDictionaryWord(word) {
 }
 
 function isEndpointWord(word) {
-  return /^[a-z]{3,12}$/.test(word);
+  return /^[a-z]{5,12}$/.test(word);
 }
 
 function normalizeVector(vector) {
@@ -97,13 +98,12 @@ async function main() {
       .filter(isDictionaryWord),
   )].sort();
   const dictionarySet = new Set(dictionaryWords);
-  const commonWords = new Set(
-    frequencyText
-      .split(/\r?\n/)
-      .slice(0, COMMON_ENDPOINT_EXCLUSION)
-      .map((line) => cleanWord(line.split("\t")[0] || ""))
-      .filter(isDictionaryWord),
-  );
+  const frequencyRows = frequencyText
+    .split(/\r?\n/)
+    .map((line, index) => ({
+      rank: index + 1,
+      word: cleanWord(line.split("\t")[0] || ""),
+    }));
 
   const rankedDirectEntries = Object.entries(embeddings)
     .map(([word, vector]) => [cleanWord(word), vector])
@@ -119,9 +119,19 @@ async function main() {
   const directEntries = [...rankedDirectEntries]
     .sort(([left], [right]) => left.localeCompare(right));
 
-  const endpointWords = dictionaryWords
-    .filter(isEndpointWord)
-    .filter((word) => !commonWords.has(word));
+  const endpointWords = [
+    ...new Set(
+      frequencyRows
+        .filter(
+          ({ rank, word }) =>
+            rank >= ENDPOINT_MIN_FREQUENCY_RANK &&
+            rank <= ENDPOINT_MAX_FREQUENCY_RANK &&
+            dictionarySet.has(word) &&
+            isEndpointWord(word),
+        )
+        .map(({ word }) => word),
+    ),
+  ];
 
   const gramCounts = new Map();
   for (const [word] of directEntries) {
@@ -235,7 +245,8 @@ async function main() {
         dictionaryWords: dictionaryWords.length,
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
-        commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
+        endpointMinFrequencyRank: ENDPOINT_MIN_FREQUENCY_RANK,
+        endpointMaxFrequencyRank: ENDPOINT_MAX_FREQUENCY_RANK,
         frequencySource: FREQUENCY_URL,
         subwords: selectedGrams.length,
         dim: DIM,
@@ -252,8 +263,8 @@ async function main() {
         dictionaryWords: dictionaryWords.length,
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
-        commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
-        commonWords: commonWords.size,
+        endpointMinFrequencyRank: ENDPOINT_MIN_FREQUENCY_RANK,
+        endpointMaxFrequencyRank: ENDPOINT_MAX_FREQUENCY_RANK,
         subwords: selectedGrams.length,
       },
       null,
