@@ -157,7 +157,7 @@ h2 {
 
 .date-controls[hidden],
 #newRandom[hidden],
-.bot-section[hidden],
+.solution-section[hidden],
 .share-row[hidden] {
   display: none;
 }
@@ -320,7 +320,7 @@ input[type="date"] {
 }
 
 .path-section,
-.bot-section,
+.solution-section,
 .stats-section,
 .rules {
   margin-top: 44px;
@@ -411,7 +411,7 @@ input[type="date"] {
   color: var(--green);
 }
 
-.bot-status {
+.solution-status {
   color: var(--muted);
   font-weight: 850;
 }
@@ -566,7 +566,7 @@ dialog::backdrop {
 
   .toolbar {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 
   .guess-table {

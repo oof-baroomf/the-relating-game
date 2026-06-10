@@ -1,8 +1,8 @@
 {
   "dictionaryWords": 168551,
-  "endpointWords": 26380,
-  "endpointMinFrequencyRank": 10000,
-  "endpointMaxFrequencyRank": 45000,
+  "endpointWords": 6646,
+  "endpointMinFrequencyRank": 2500,
+  "endpointMaxFrequencyRank": 12000,
   "vectorWords": 168551,
   "vectorDim": 300,
   "vectorShardSize": 20000,

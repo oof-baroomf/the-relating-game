@@ -38,7 +38,6 @@
         </div>
 
         <button class="quiet-button" id="newRandom" type="button">New random</button>
-        <button class="quiet-button" id="botToggle" type="button">Bot fight</button>
       </section>
 
       <section class="game-board" aria-live="polite">
@@ -99,6 +98,7 @@
           <div class="toolbar">
             <button class="quiet-button" id="undoStep" type="button" disabled>Undo</button>
             <button class="quiet-button" id="resetGame" type="button" disabled>Reset</button>
+            <button class="quiet-button" id="giveUp" type="button" disabled>Give up</button>
             <button class="quiet-button" id="shareResult" type="button" disabled>Share</button>
           </div>
         </div>
@@ -120,10 +120,10 @@
         </table>
       </section>
 
-      <section class="bot-section" id="botSection" hidden>
+      <section class="solution-section" id="solutionSection" hidden>
         <div class="section-header">
-          <h2>Bot</h2>
-          <span class="bot-status" id="botStatus">Waiting</span>
+          <h2>RelateBot's solution</h2>
+          <span class="solution-status" id="solutionStatus">Waiting</span>
         </div>
         <table class="guess-table">
           <thead>
@@ -135,7 +135,7 @@
               <th scope="col">Read</th>
             </tr>
           </thead>
-          <tbody id="botPathList"></tbody>
+          <tbody id="solutionPathList"></tbody>
         </table>
       </section>
 
@@ -173,6 +173,7 @@
       <div class="dialog-body">
         <h2 id="resultTitle">Solved</h2>
         <p id="resultText"></p>
+        <p id="resultSolution"></p>
         <div class="dialog-actions">
           <button class="quiet-button" id="dialogShare" type="button">Share</button>
           <button id="dialogClose" type="button">Close</button>

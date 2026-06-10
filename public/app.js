@@ -13,9 +13,9 @@ const MODES = {
   hard: { label: "Hard", gapDivisor: 3 },
 };
 
-const TARGET_PAIR_GAP = 0.82;
-const MIN_PAIR_GAP = 0.76;
-const MAX_PAIR_GAP = 0.92;
+const TARGET_PAIR_GAP = 0.9;
+const MIN_PAIR_GAP = 0.86;
+const MAX_PAIR_GAP = 0.94;
 const TEST_PARAMS = new URLSearchParams(window.location.search);
 const USE_MOCK_MODEL = TEST_PARAMS.has("mockModel");
 
@@ -28,7 +28,6 @@ const elements = {
   previousDay: document.querySelector("#previousDay"),
   nextDay: document.querySelector("#nextDay"),
   newRandom: document.querySelector("#newRandom"),
-  botToggle: document.querySelector("#botToggle"),
   startWord: document.querySelector("#startWord"),
   targetWord: document.querySelector("#targetWord"),
   puzzleSummary: document.querySelector("#puzzleSummary"),
@@ -45,13 +44,14 @@ const elements = {
   pathList: document.querySelector("#pathList"),
   undoStep: document.querySelector("#undoStep"),
   resetGame: document.querySelector("#resetGame"),
+  giveUp: document.querySelector("#giveUp"),
   shareResult: document.querySelector("#shareResult"),
   shareRow: document.querySelector("#shareRow"),
   shareText: document.querySelector("#shareText"),
   copyShare: document.querySelector("#copyShare"),
-  botSection: document.querySelector("#botSection"),
-  botStatus: document.querySelector("#botStatus"),
-  botPathList: document.querySelector("#botPathList"),
+  solutionSection: document.querySelector("#solutionSection"),
+  solutionStatus: document.querySelector("#solutionStatus"),
+  solutionPathList: document.querySelector("#solutionPathList"),
   playedStat: document.querySelector("#playedStat"),
   winsStat: document.querySelector("#winsStat"),
   bestStat: document.querySelector("#bestStat"),
@@ -59,6 +59,7 @@ const elements = {
   resultDialog: document.querySelector("#resultDialog"),
   resultTitle: document.querySelector("#resultTitle"),
   resultText: document.querySelector("#resultText"),
+  resultSolution: document.querySelector("#resultSolution"),
   dialogShare: document.querySelector("#dialogShare"),
   dialogClose: document.querySelector("#dialogClose"),
 };
@@ -67,6 +68,7 @@ let dictionary = new Set();
 let endpoints = [];
 let manifest = null;
 let vectorWords = new Map();
+let vectorWordList = [];
 let vectorShards = [];
 let vectorDim = 0;
 let vectorShardSize = 0;
@@ -77,7 +79,6 @@ let targetGapRequest = 0;
 const defaultStorage = {
   mode: "easy",
   kind: "daily",
-  botFight: false,
   archiveDate: previousDateId(todayId()),
   randomSeed: "",
   games: {},
@@ -102,7 +103,6 @@ function mergeStorage(base, value) {
   const merged = structuredClone(base);
   if (typeof value.mode === "string" && MODES[value.mode]) merged.mode = value.mode;
   if (["daily", "random", "archive"].includes(value.kind)) merged.kind = value.kind;
-  if (typeof value.botFight === "boolean") merged.botFight = value.botFight;
   if (isDateId(value.archiveDate)) merged.archiveDate = value.archiveDate;
   if (typeof value.randomSeed === "string") merged.randomSeed = value.randomSeed;
   if (value.games && typeof value.games === "object") merged.games = value.games;
@@ -301,16 +301,7 @@ function createEmptyRecord() {
     done: false,
     status: "playing",
     completedAt: "",
-    bot: createBotState(),
-  };
-}
-
-function createBotState() {
-  return {
-    path: [currentPuzzle.start],
-    scores: [],
-    done: false,
-    status: "playing",
+    solution: null,
   };
 }
 
@@ -328,15 +319,14 @@ function getRecord() {
       done: Boolean(saved.done),
       status: saved.status || (saved.done ? "won" : "playing"),
       completedAt: saved.completedAt || "",
-      bot:
-        saved.bot && Array.isArray(saved.bot.path)
+      solution:
+        saved.solution && typeof saved.solution === "object"
           ? {
-              path: saved.bot.path,
-              scores: Array.isArray(saved.bot.scores) ? saved.bot.scores : [],
-              done: Boolean(saved.bot.done),
-              status: saved.bot.status || "playing",
+              status: saved.solution.status || "hidden",
+              path: Array.isArray(saved.solution.path) ? saved.solution.path : [],
+              scores: Array.isArray(saved.solution.scores) ? saved.solution.scores : [],
             }
-          : createBotState(),
+          : null,
     };
   }
   return createEmptyRecord();
@@ -383,6 +373,7 @@ function loadEndpointTable(data) {
 async function loadVectorTable(data) {
   vectorDim = data.dim;
   vectorShardSize = data.shardSize;
+  vectorWordList = data.words;
   vectorWords = new Map(data.words.map((word, index) => [word, index]));
   vectorShards = await Promise.all(
     data.shards.map(async (path) => {
@@ -399,6 +390,10 @@ function getLocalVector(term) {
   if (USE_MOCK_MODEL) return mockEmbed(term);
   const index = vectorWords.get(term);
   if (index === undefined) return null;
+  return getLocalVectorByIndex(index);
+}
+
+function getLocalVectorByIndex(index) {
   const shard = vectorShards[Math.floor(index / vectorShardSize)];
   const rowStart = (index % vectorShardSize) * vectorDim;
   return shard.subarray(rowStart, rowStart + vectorDim);
@@ -449,6 +444,14 @@ function cosineSimilarity(left, right) {
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
+function dotSimilarity(left, right) {
+  let dot = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+  }
+  return dot;
+}
+
 function render() {
   const steps = currentRecord.path.length - 1;
   const moveLimit = getMoveLimit();
@@ -466,8 +469,6 @@ function render() {
   elements.modeButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === storage.mode);
   });
-  elements.botToggle.classList.toggle("active", storage.botFight);
-  elements.botToggle.textContent = storage.botFight ? "Bot on" : "Bot fight";
 
   elements.dateControls.hidden = storage.kind !== "archive";
   elements.newRandom.hidden = storage.kind !== "random";
@@ -494,6 +495,7 @@ function render() {
   elements.submitGuess.disabled = !canPlay;
   elements.undoStep.disabled = !canPlay || currentRecord.path.length <= 1;
   elements.resetGame.disabled = currentRecord.path.length <= 1 && !currentRecord.done;
+  elements.giveUp.disabled = !canPlay;
   elements.shareResult.disabled = !currentRecord.done;
 
   const shareText = currentRecord.done ? buildShareText() : "";
@@ -506,24 +508,33 @@ function render() {
     ),
   );
 
-  renderBot();
+  renderSolution();
   renderStats();
 }
 
-function renderBot() {
-  elements.botSection.hidden = !storage.botFight;
-  if (!storage.botFight) return;
+function renderSolution() {
+  const solution = currentRecord.solution;
+  elements.solutionSection.hidden = !solution;
+  if (!solution) {
+    elements.solutionStatus.textContent = "Waiting";
+    elements.solutionPathList.replaceChildren();
+    elements.resultSolution.textContent = "";
+    return;
+  }
 
-  const bot = currentRecord.bot || createBotState();
-  const steps = bot.path.length - 1;
-  elements.botStatus.textContent =
-    bot.status === "won"
-      ? `Solved in ${steps}/${MAX_STEPS}`
-      : bot.status === "stuck"
-        ? `Stuck at ${steps}/${MAX_STEPS}`
-        : `${steps}/${MAX_STEPS}`;
-  elements.botPathList.replaceChildren(
-    ...bot.path.map((term, index) => createGuessRow(term, index, bot.scores[index - 1])),
+  if (solution.status === "searching") {
+    elements.solutionStatus.textContent = "Searching";
+    elements.resultSolution.textContent = "RelateBot's solution is being searched.";
+  } else if (solution.status === "ready") {
+    elements.solutionStatus.textContent = `${Math.max(0, solution.path.length - 1)}/${MAX_STEPS}`;
+    elements.resultSolution.textContent = `RelateBot's solution: ${solution.path.join(" -> ")}`;
+  } else {
+    elements.solutionStatus.textContent = "No path found";
+    elements.resultSolution.textContent = "RelateBot did not find a valid path.";
+  }
+
+  elements.solutionPathList.replaceChildren(
+    ...solution.path.map((term, index) => createGuessRow(term, index, solution.scores[index - 1])),
   );
 }
 
@@ -670,12 +681,14 @@ async function handleGuessSubmit(event) {
         )}).`,
         "success",
       );
-      if (storage.botFight) takeBotTurn();
     }
 
     persistRecord();
     render();
     updateTargetGap();
+    if (currentRecord.done) {
+      revealRelateBotSolution();
+    }
   } catch (error) {
     setMessage(error.message || "Could not score that step.", "error");
   } finally {
@@ -700,91 +713,148 @@ function focusGuessInput() {
   });
 }
 
-function takeBotTurn() {
-  if (!storage.botFight || currentRecord.done) return;
-  currentRecord.bot ||= createBotState();
-  const bot = currentRecord.bot;
-  if (bot.done || bot.path.length - 1 >= MAX_STEPS) return;
-
-  const move = chooseBotMove();
-  if (!move) {
-    bot.done = true;
-    bot.status = "stuck";
-    persistRecord();
-    render();
+async function revealRelateBotSolution() {
+  if (currentRecord.solution?.status === "ready" || currentRecord.solution?.status === "none") {
     return;
   }
 
-  bot.path.push(move.word);
-  bot.scores.push({
-    from: move.from,
-    to: move.word,
-    similarity: roundScore(move.similarity),
-    gap: roundScore(move.gap),
-    targetGap: roundScore(move.targetGap),
-    at: new Date().toISOString(),
-  });
+  currentRecord.solution = { status: "searching", path: [], scores: [] };
+  persistRecord();
+  render();
 
-  if (move.word === currentPuzzle.target) {
-    bot.done = true;
-    bot.status = "won";
-    finishGame("lost", "Bot reached the target first.");
-    showResultDialog();
-  } else if (bot.path.length - 1 >= MAX_STEPS) {
-    bot.done = true;
-    bot.status = "stuck";
+  const path = await findRelateBotPath();
+  if (path) {
+    currentRecord.solution = {
+      status: "ready",
+      path,
+      scores: await scoreSolutionPath(path),
+    };
+  } else {
+    currentRecord.solution = { status: "none", path: [], scores: [] };
   }
 
   persistRecord();
   render();
 }
 
-function chooseBotMove() {
-  const bot = currentRecord.bot || createBotState();
-  const from = bot.path[bot.path.length - 1];
-  const moveLimit = getMoveLimit();
-  const used = new Set(bot.path);
-  const directTarget = scoreLocalPair(from, currentPuzzle.target);
-  if (directTarget && directTarget.gap <= moveLimit + 0.000001) {
-    return {
-      from,
-      word: currentPuzzle.target,
-      similarity: directTarget.similarity,
-      gap: directTarget.gap,
-      targetGap: 0,
-    };
+async function findRelateBotPath() {
+  const direct = await scorePair(currentPuzzle.start, currentPuzzle.target);
+  if (direct.gap <= getMoveLimit() + 0.000001) {
+    return [currentPuzzle.start, currentPuzzle.target];
   }
 
-  const fromVector = getLocalVector(from);
-  const targetVector = getLocalVector(currentPuzzle.target);
-  if (!fromVector || !targetVector) return null;
+  const shortPath = await findShortBridgePath();
+  if (shortPath) return shortPath;
 
-  const currentTargetGap = directTarget?.gap ?? currentPuzzle.gap;
-  let best = null;
-  for (const word of vectorWords.keys()) {
-    if (used.has(word) || word === from || word === currentPuzzle.start) continue;
-    const vector = getLocalVector(word);
-    if (!vector) continue;
+  return findGreedyRelateBotPath();
+}
 
-    const stepSimilarity = cosineSimilarity(fromVector, vector);
-    const stepGap = Math.max(0, 1 - stepSimilarity);
-    if (stepGap > moveLimit + 0.000001 || stepGap < 0.01) continue;
+async function findShortBridgePath() {
+  if (USE_MOCK_MODEL) return null;
 
-    const targetGap = Math.max(0, 1 - cosineSimilarity(vector, targetVector));
-    const candidate = {
-      from,
-      word,
-      similarity: stepSimilarity,
-      gap: stepGap,
-      targetGap,
-    };
+  const moveLimit = getMoveLimit();
+  const minSimilarity = 1 - moveLimit - 0.000001;
+  const startIndex = vectorWords.get(currentPuzzle.start);
+  const targetIndex = vectorWords.get(currentPuzzle.target);
+  const startNeighbors = await scanNeighborIndices(startIndex, minSimilarity);
+  const targetNeighbors = await scanNeighborIndices(targetIndex, minSimilarity);
+  const targetNeighborSet = new Set(targetNeighbors);
 
-    if (targetGap < currentTargetGap - 0.01 && (!best || targetGap < best.targetGap)) {
-      best = candidate;
+  for (const middle of startNeighbors) {
+    if (targetNeighborSet.has(middle)) {
+      return [
+        currentPuzzle.start,
+        vectorWordList[middle],
+        currentPuzzle.target,
+      ];
     }
   }
 
-  return best;
+  for (const left of startNeighbors) {
+    const leftVector = getLocalVectorByIndex(left);
+    for (const right of targetNeighbors) {
+      if (dotSimilarity(leftVector, getLocalVectorByIndex(right)) >= minSimilarity) {
+        return [
+          currentPuzzle.start,
+          vectorWordList[left],
+          vectorWordList[right],
+          currentPuzzle.target,
+        ];
+      }
+    }
+  }
+
+  return null;
+}
+
+async function scanNeighborIndices(baseIndex, minSimilarity) {
+  const baseVector = getLocalVectorByIndex(baseIndex);
+  const neighbors = [];
+  for (let index = 0; index < vectorWordList.length; index += 1) {
+    if (index !== baseIndex && dotSimilarity(baseVector, getLocalVectorByIndex(index)) >= minSimilarity) {
+      neighbors.push(index);
+    }
+  }
+  return neighbors;
+}
+
+async function findGreedyRelateBotPath() {
+  const moveLimit = getMoveLimit();
+  const path = [currentPuzzle.start];
+  const used = new Set(path);
+
+  const targetVector = getLocalVector(currentPuzzle.target);
+  if (!targetVector) return null;
+
+  while (path.length - 1 < MAX_STEPS) {
+    const from = path[path.length - 1];
+    const directTarget = await scorePair(from, currentPuzzle.target);
+    if (directTarget.gap <= moveLimit + 0.000001) {
+      path.push(currentPuzzle.target);
+      return path;
+    }
+
+    const fromVector = getLocalVector(from);
+    const currentTargetGap = directTarget.gap;
+    let best = null;
+
+    for (let index = 0; index < vectorWordList.length; index += 1) {
+      const word = vectorWordList[index];
+      if (used.has(word) || word === currentPuzzle.target) continue;
+
+      const vector = getLocalVectorByIndex(index);
+      const stepGap = Math.max(0, 1 - dotSimilarity(fromVector, vector));
+      if (stepGap > moveLimit + 0.000001 || stepGap < 0.01) continue;
+
+      const targetGap = Math.max(0, 1 - dotSimilarity(vector, targetVector));
+      if (targetGap < currentTargetGap - 0.01 && (!best || targetGap < best.targetGap)) {
+        best = { word, targetGap };
+      }
+    }
+
+    if (!best) return null;
+    path.push(best.word);
+    used.add(best.word);
+  }
+
+  return null;
+}
+
+async function scoreSolutionPath(path) {
+  const scores = [];
+  for (let index = 1; index < path.length; index += 1) {
+    const stepScore = await scorePair(path[index - 1], path[index]);
+    const targetScore = await scorePair(path[index], currentPuzzle.target);
+    scores.push({
+      from: path[index - 1],
+      to: path[index],
+      similarity: roundScore(stepScore.similarity),
+      gap: roundScore(stepScore.gap),
+      targetGap: roundScore(targetScore.gap),
+      at: new Date().toISOString(),
+    });
+  }
+  return scores;
 }
 
 function roundScore(value) {
@@ -809,12 +879,25 @@ function finishGame(status, message) {
 }
 
 function showResultDialog() {
-  const won = currentRecord.status === "won";
-  elements.resultTitle.textContent = won ? "Solved" : "Game over";
+  elements.resultTitle.textContent =
+    currentRecord.status === "won"
+      ? "Solved"
+      : currentRecord.status === "gave-up"
+        ? "Gave up"
+        : "Game over";
   elements.resultText.textContent = buildShareText();
   if (typeof elements.resultDialog.showModal === "function") {
     elements.resultDialog.showModal();
   }
+}
+
+async function giveUp() {
+  if (currentRecord.done) return;
+  finishGame("gave-up", "Gave up.");
+  persistRecord();
+  render();
+  showResultDialog();
+  await revealRelateBotSolution();
 }
 
 function resetCurrentGame() {
@@ -857,20 +940,6 @@ function switchMode(mode) {
   queuePuzzleLoad();
 }
 
-function toggleBotFight() {
-  storage.botFight = !storage.botFight;
-  if (storage.botFight) {
-    currentRecord.bot ||= createBotState();
-    setMessage("Bot Fight enabled. The bot moves after each accepted guess.");
-  } else {
-    setMessage("Bot Fight disabled.");
-  }
-  persistRecord();
-  saveStorage();
-  render();
-  focusGuessInput();
-}
-
 async function loadPuzzle() {
   currentPuzzle = await buildPuzzle();
   currentRecord = getRecord();
@@ -884,6 +953,9 @@ async function loadPuzzle() {
     setMessage("Enter a word that is close enough to your current word.");
   }
   updateTargetGap();
+  if (currentRecord.done && !currentRecord.solution) {
+    revealRelateBotSolution();
+  }
   focusGuessInput();
 }
 
@@ -945,10 +1017,10 @@ function wireEvents() {
     setArchiveDate(addDays(storage.archiveDate, 1));
   });
   elements.newRandom.addEventListener("click", newRandomPuzzle);
-  elements.botToggle.addEventListener("click", toggleBotFight);
   elements.guessForm.addEventListener("submit", handleGuessSubmit);
   elements.undoStep.addEventListener("click", undoStep);
   elements.resetGame.addEventListener("click", resetCurrentGame);
+  elements.giveUp.addEventListener("click", giveUp);
   elements.shareResult.addEventListener("click", shareCurrentResult);
   elements.copyShare.addEventListener("click", shareCurrentResult);
   elements.dialogShare.addEventListener("click", shareCurrentResult);

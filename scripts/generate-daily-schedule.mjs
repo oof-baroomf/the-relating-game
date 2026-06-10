@@ -4,9 +4,12 @@ import { fileURLToPath } from "node:url";
 
 const START_DATE = "2026-06-10";
 const SCHEDULE_DAYS = 3660;
-const TARGET_PAIR_GAP = 0.82;
-const MIN_PAIR_GAP = 0.76;
-const MAX_PAIR_GAP = 0.92;
+const TARGET_PAIR_GAP = 0.9;
+const MIN_PAIR_GAP = 0.86;
+const MAX_PAIR_GAP = 0.94;
+const DAILY_OVERRIDES = new Map([
+  ["2026-06-10", ["grove", "iodine"]],
+]);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -72,6 +75,16 @@ function makeVectorReader(lexicon, shardBuffers) {
 }
 
 function pickPair(dateId, endpoints, getVector) {
+  const override = DAILY_OVERRIDES.get(dateId);
+  if (override) {
+    const [start, target] = override;
+    const gap = 1 - cosineSimilarity(getVector(start), getVector(target));
+    if (gap < MIN_PAIR_GAP || gap > MAX_PAIR_GAP) {
+      throw new Error(`${dateId} override is outside the target gap band.`);
+    }
+    return [dateId, start, target, roundScore(gap)];
+  }
+
   const random = mulberry32(hashString(`date:${dateId}`));
   for (;;) {
     const start = endpoints[Math.floor(random() * endpoints.length)];

@@ -34,6 +34,9 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
 
   await expect(page.locator("#resultDialog")).toBeVisible();
   await expect(page.locator("#resultText")).toContainText("Hard 2/10");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
+  await expect(page.locator("#solutionSection")).toBeVisible();
+  await expect(page.locator("#solutionStatus")).toContainText("/10");
   await expect(page.locator("#shareResult")).toBeEnabled();
   await expect(page.locator("#shareText")).toHaveValue(
     /The Relating Game \d{2}\/\d{2}\/\d{4} \| Hard 2\/10 \| relating-game\.pages\.dev/,
@@ -82,19 +85,22 @@ test("ends after ten accepted non-target steps", async ({ page }) => {
   await expect(page.locator("#message")).toContainText("Out of steps");
   await expect(page.locator("#guessInput")).toBeDisabled();
   await expect(page.locator("#shareText")).toHaveValue(/Easy X\/10/);
+  await expect(page.locator("#solutionSection")).toBeVisible();
+  await expect(page.locator("#solutionStatus")).toContainText("/10");
 });
 
-test("bot fight lets the bot race after an accepted guess", async ({ page }) => {
+test("give up ends the game and reveals RelateBot's solution", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
-  await page.getByRole("button", { name: "Bot fight" }).click();
-  await expect(page.locator("#botSection")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Bot fight" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Give up" }).click();
 
-  await page.locator("#guessInput").fill("bridge");
-  await page.getByRole("button", { name: "Try" }).click();
-
-  await expect(page.locator("#message")).toContainText("Bot reached the target first");
-  await expect(page.locator("#botStatus")).toContainText("Solved in 1/10");
+  await expect(page.locator("#resultDialog")).toBeVisible();
+  await expect(page.locator("#resultTitle")).toHaveText("Gave up");
+  await expect(page.locator("#resultText")).toContainText("Easy X/10");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
+  await expect(page.locator("#solutionSection")).toBeVisible();
+  await expect(page.locator("#solutionPathList .path-word")).toContainText(["cat", "dog"]);
   await expect(page.locator("#guessInput")).toBeDisabled();
 });
 
@@ -143,13 +149,13 @@ test("endpoint data uses a specific but recognizable frequency band", async ({ r
 
   const manifest = await manifestResponse.json();
   const endpoints = await endpointsResponse.json();
-  expect(manifest.endpointMinFrequencyRank).toBe(10000);
-  expect(manifest.endpointMaxFrequencyRank).toBe(45000);
+  expect(manifest.endpointMinFrequencyRank).toBe(2500);
+  expect(manifest.endpointMaxFrequencyRank).toBe(12000);
   expect(manifest.vectorDim).toBe(300);
   expect(manifest.vectorWords).toBe(manifest.dictionaryWords);
   expect(endpoints.words.length).toBe(manifest.endpointWords);
 
-  for (const word of ["the", "time", "people", "world", "water", "system", "zyzzyvas"]) {
+  for (const word of ["the", "time", "people", "world", "water", "system", "plats"]) {
     expect(endpoints.words).not.toContain(word);
   }
 });
