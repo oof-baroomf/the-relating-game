@@ -10,13 +10,15 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
 
   await page.getByRole("button", { name: "Hard" }).click();
   await expect(page.locator("#limitLabel")).toContainText("Hard move limit: 0.25");
+  await expect(page.locator("#guessInput")).toBeFocused();
 
   await page.locator("#guessInput").fill("bridge");
   await page.getByRole("button", { name: "Try" }).click();
   await expect(page.locator("#message")).toContainText("Accepted");
+  await expect(page.locator("#guessInput")).toBeFocused();
 
   await page.locator("#guessInput").fill("dog");
-  await page.getByRole("button", { name: "Try" }).click();
+  await page.keyboard.press("Enter");
 
   await expect(page.locator("#resultDialog")).toBeVisible();
   await expect(page.locator("#resultText")).toContainText("Hard 2/10");

@@ -15,10 +15,7 @@
       <div class="brand-row">
         <h1>The Relating Game</h1>
       </div>
-      <div class="header-actions">
-        <div class="status-pill" id="modelStatus">Loading</div>
-        <button class="quiet-button" id="themeToggle" type="button">Dark</button>
-      </div>
+      <div class="sr-only" id="modelStatus" aria-live="polite">Loading</div>
     </header>
 
     <main class="shell">
@@ -79,6 +76,8 @@
             inputmode="text"
             placeholder="Enter a dictionary word"
             maxlength="15"
+            autocapitalize="none"
+            spellcheck="false"
             disabled
           >
           <button id="submitGuess" type="submit" disabled>Try</button>

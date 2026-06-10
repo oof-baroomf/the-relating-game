@@ -4,7 +4,6 @@ const EMBEDDINGS_URL = "./data/embeddings.json";
 const MANIFEST_URL = "./data/manifest.json";
 const EMBED_API_URL = "./api/embed";
 const STORAGE_KEY = "the-relating-game:v3";
-const THEME_STORAGE_KEY = "the-relating-game:theme";
 const SHARE_SITE = "relating-game.pages.dev";
 const START_DATE = "2026-06-10";
 const MAX_STEPS = 10;
@@ -22,7 +21,6 @@ const USE_MOCK_MODEL = TEST_PARAMS.has("mockModel");
 
 const elements = {
   modelStatus: document.querySelector("#modelStatus"),
-  themeToggle: document.querySelector("#themeToggle"),
   kindButtons: [...document.querySelectorAll("[data-kind]")],
   modeButtons: [...document.querySelectorAll("[data-mode]")],
   dateControls: document.querySelector("#dateControls"),
@@ -92,8 +90,6 @@ const defaultStorage = {
 
 let storage = loadStorage();
 
-applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || "");
-
 function loadStorage() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
@@ -124,32 +120,6 @@ function mergeStorage(base, value) {
 
 function saveStorage() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
-}
-
-function applyTheme(theme) {
-  if (theme === "light" || theme === "dark") {
-    document.documentElement.dataset.theme = theme;
-  } else {
-    document.documentElement.removeAttribute("data-theme");
-  }
-  updateThemeButton();
-}
-
-function effectiveTheme() {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function updateThemeButton() {
-  if (!elements.themeToggle) return;
-  elements.themeToggle.textContent = effectiveTheme() === "dark" ? "Light" : "Dark";
-}
-
-function toggleTheme() {
-  const nextTheme = effectiveTheme() === "dark" ? "light" : "dark";
-  localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-  applyTheme(nextTheme);
 }
 
 function setStatus(text, tone = "") {
@@ -668,18 +638,22 @@ async function handleGuessSubmit(event) {
 
   if (!isWordShape(term)) {
     setMessage("Enter one dictionary word, using only letters.", "error");
+    focusGuessInput();
     return;
   }
   if (!dictionary.has(term)) {
     setMessage("That word is not in the game dictionary.", "error");
+    focusGuessInput();
     return;
   }
   if (term === previous) {
     setMessage("That is already your current word.", "error");
+    focusGuessInput();
     return;
   }
   if (currentRecord.path.includes(term)) {
     setMessage("Use each word once.", "error");
+    focusGuessInput();
     return;
   }
 
@@ -734,6 +708,7 @@ async function handleGuessSubmit(event) {
     setMessage(error.message || "Could not score that step.", "error");
   } finally {
     setBusy(false);
+    focusGuessInput();
   }
 }
 
@@ -742,6 +717,15 @@ function setBusy(isBusy) {
   if (currentRecord.done) return;
   elements.guessInput.disabled = isBusy;
   elements.submitGuess.disabled = isBusy;
+}
+
+function focusGuessInput() {
+  if (!currentRecord || currentRecord.done || elements.guessInput.disabled) return;
+  requestAnimationFrame(() => {
+    if (!currentRecord.done && !elements.guessInput.disabled) {
+      elements.guessInput.focus({ preventScroll: true });
+    }
+  });
 }
 
 function takeBotTurn() {
@@ -914,6 +898,7 @@ function toggleBotFight() {
   persistRecord();
   saveStorage();
   render();
+  focusGuessInput();
 }
 
 function loadPuzzle() {
@@ -926,6 +911,7 @@ function loadPuzzle() {
     setMessage("Enter a word that is close enough to your current word.");
   }
   updateTargetGap();
+  focusGuessInput();
 }
 
 function setArchiveDate(dateId) {
@@ -962,8 +948,6 @@ function buildShareText() {
 }
 
 function wireEvents() {
-  elements.themeToggle.addEventListener("click", toggleTheme);
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", updateThemeButton);
   elements.kindButtons.forEach((button) => {
     button.addEventListener("click", () => switchKind(button.dataset.kind));
   });
