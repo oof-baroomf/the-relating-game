@@ -12,11 +12,13 @@
   </head>
   <body>
     <header class="site-header">
-      <div>
-        <p class="eyebrow">Daily semantic path</p>
+      <div class="brand-row">
         <h1>The Relating Game</h1>
       </div>
-      <div class="status-pill" id="modelStatus">Loading words</div>
+      <div class="header-actions">
+        <div class="status-pill" id="modelStatus">Loading</div>
+        <button class="quiet-button" id="themeToggle" type="button">Dark</button>
+      </div>
     </header>
 
     <main class="shell">
@@ -39,6 +41,7 @@
         </div>
 
         <button class="quiet-button" id="newRandom" type="button">New random</button>
+        <button class="quiet-button" id="botToggle" type="button">Bot fight</button>
       </section>
 
       <section class="game-board" aria-live="polite">
@@ -53,9 +56,13 @@
           </div>
         </div>
 
+        <p class="context-line" id="puzzleSummary">
+          Find a path in 10 steps.
+        </p>
+
         <div class="meter-block">
           <div class="meter-label">
-            <span>Current gap to target</span>
+            <span>Gap to target</span>
             <strong id="targetGap">...</strong>
           </div>
           <div class="meter" aria-hidden="true">
@@ -81,21 +88,56 @@
 
         <div class="rule-line">
           <span id="puzzleLabel">Daily</span>
+          <span id="startGapLabel">Start gap: ...</span>
           <span id="limitLabel">Gap limit: ...</span>
-          <span id="stepLabel">0 steps</span>
+          <span id="stepLabel">0/10</span>
         </div>
       </section>
 
       <section class="path-section">
         <div class="section-header">
-          <h2>Path</h2>
+          <h2>Guesses</h2>
           <div class="toolbar">
             <button class="quiet-button" id="undoStep" type="button" disabled>Undo</button>
             <button class="quiet-button" id="resetGame" type="button" disabled>Reset</button>
             <button class="quiet-button" id="shareResult" type="button" disabled>Share</button>
           </div>
         </div>
-        <ol class="path-list" id="pathList"></ol>
+        <div class="share-row" id="shareRow" hidden>
+          <input id="shareText" type="text" readonly aria-label="Share score">
+          <button id="copyShare" type="button">Copy</button>
+        </div>
+        <table class="guess-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Word</th>
+              <th scope="col">Step gap</th>
+              <th scope="col">Target gap</th>
+              <th scope="col">Read</th>
+            </tr>
+          </thead>
+          <tbody id="pathList"></tbody>
+        </table>
+      </section>
+
+      <section class="bot-section" id="botSection" hidden>
+        <div class="section-header">
+          <h2>Bot</h2>
+          <span class="bot-status" id="botStatus">Waiting</span>
+        </div>
+        <table class="guess-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Word</th>
+              <th scope="col">Step gap</th>
+              <th scope="col">Target gap</th>
+              <th scope="col">Read</th>
+            </tr>
+          </thead>
+          <tbody id="botPathList"></tbody>
+        </table>
       </section>
 
       <section class="stats-section">
@@ -121,9 +163,9 @@
         <summary>Rules</summary>
         <p>
           Move from the start word to the target word. Each submitted step must
-          keep semantic gap, measured as 1 minus cosine similarity, at or below
-          the current limit. Guesses must be single words from the game
-          dictionary.
+          keep semantic gap under the current limit. Easy allows half of the
+          start-to-target gap per move; Hard allows one quarter. You have 10
+          steps.
         </p>
       </details>
     </main>
