@@ -1,8 +1,7 @@
 const DICTIONARY_URL = "./data/dictionary.txt";
 const ENDPOINTS_URL = "./data/endpoints.json";
-const EMBEDDINGS_URL = "./data/embeddings.json";
+const LEXICON_URL = "./data/lexicon.json";
 const MANIFEST_URL = "./data/manifest.json";
-const EMBED_API_URL = "./api/embed";
 const STORAGE_KEY = "the-relating-game:v3";
 const SHARE_SITE = "relating-game.pages.dev";
 const START_DATE = "2026-06-10";
@@ -66,18 +65,13 @@ const elements = {
 let dictionary = new Set();
 let endpoints = [];
 let manifest = null;
-let embeddingWords = new Map();
-let embeddingBytes = new Int8Array();
-let embeddingDim = 0;
-let embeddingScale = 127;
-let endpointWords = new Map();
-let endpointBytes = new Int8Array();
-let endpointDim = 0;
-let endpointScale = 127;
+let vectorWords = new Map();
+let vectorShards = [];
+let vectorDim = 0;
+let vectorShardSize = 0;
 let currentPuzzle = null;
 let currentRecord = null;
 let targetGapRequest = 0;
-const vectorCache = new Map();
 
 const defaultStorage = {
   mode: "easy",
@@ -220,31 +214,17 @@ function pickPair(seedText) {
   }
 
   const random = mulberry32(hashString(seedText));
-  let fallback = null;
-
-  for (let attempt = 0; attempt < 1600; attempt += 1) {
+  for (;;) {
     const start = endpoints[Math.floor(random() * endpoints.length)];
     const target = endpoints[Math.floor(random() * endpoints.length)];
-    if (!start || !target || start === target) continue;
+    if (start === target) continue;
 
     const score = scoreLocalPair(start, target);
-    if (!score) continue;
     const gap = Math.max(0, 1 - score.similarity);
-    if (
-      !fallback ||
-      Math.abs(gap - TARGET_PAIR_GAP) < Math.abs(fallback.gap - TARGET_PAIR_GAP)
-    ) {
-      fallback = { start, target, gap };
-    }
     if (gap >= MIN_PAIR_GAP && gap <= MAX_PAIR_GAP) {
       return { start, target, gap };
     }
   }
-
-  if (fallback) return fallback;
-  const start = endpoints[0] || "time";
-  const target = endpoints[1] || "world";
-  return { start, target, gap: scoreLocalPair(start, target)?.gap || TARGET_PAIR_GAP };
 }
 
 function scoreLocalPair(from, to) {
@@ -354,88 +334,59 @@ function persistRecord() {
 
 async function loadGameData() {
   setStatus("Loading");
-  const [dictionaryResponse, endpointsResponse, embeddingsResponse, manifestResponse] =
-    await Promise.all([
-      fetch(DICTIONARY_URL),
-      fetch(ENDPOINTS_URL),
-      fetch(EMBEDDINGS_URL),
-      fetch(MANIFEST_URL),
-    ]);
+  const requests = USE_MOCK_MODEL
+    ? [fetch(DICTIONARY_URL), fetch(ENDPOINTS_URL), fetch(MANIFEST_URL)]
+    : [fetch(DICTIONARY_URL), fetch(ENDPOINTS_URL), fetch(LEXICON_URL), fetch(MANIFEST_URL)];
+  const responses = await Promise.all(requests);
 
-  for (const response of [
-    dictionaryResponse,
-    endpointsResponse,
-    embeddingsResponse,
-    manifestResponse,
-  ]) {
+  for (const response of responses) {
     if (!response.ok) {
       throw new Error(`Could not load game data: ${response.status}`);
     }
   }
 
+  const [dictionaryResponse, endpointsResponse, thirdResponse, fourthResponse] = responses;
   const dictionaryText = await dictionaryResponse.text();
   dictionary = new Set(dictionaryText.split(/\r?\n/).filter(Boolean));
   loadEndpointTable(await endpointsResponse.json());
-  manifest = await manifestResponse.json();
-  loadEmbeddingTable(await embeddingsResponse.json());
+  if (USE_MOCK_MODEL) {
+    manifest = await thirdResponse.json();
+  } else {
+    manifest = await fourthResponse.json();
+    await loadVectorTable(await thirdResponse.json());
+  }
 
-  if (dictionary.size < 1000 || endpoints.length < 100 || !manifest) {
+  if (dictionary.size < 1000 || (!USE_MOCK_MODEL && endpoints.length < 100) || !manifest) {
     throw new Error("Game data did not contain enough words.");
   }
 }
 
-function loadEmbeddingTable(data) {
-  embeddingDim = data.dim;
-  embeddingScale = data.scale;
-  embeddingBytes = decodeBase64Int8(data.vectors);
-  embeddingWords = new Map(data.words.map((word, index) => [word, index]));
-}
-
 function loadEndpointTable(data) {
   endpoints = data.words;
-  endpointDim = data.dim;
-  endpointScale = data.scale;
-  endpointBytes = decodeBase64Int8(data.vectors);
-  endpointWords = new Map(data.words.map((word, index) => [word, index]));
 }
 
-function decodeBase64Int8(value) {
-  const binary = atob(value);
-  const bytes = new Int8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+async function loadVectorTable(data) {
+  vectorDim = data.dim;
+  vectorShardSize = data.shardSize;
+  vectorWords = new Map(data.words.map((word, index) => [word, index]));
+  vectorShards = await Promise.all(
+    data.shards.map(async (path) => {
+      const response = await fetch(`./${path}`);
+      if (!response.ok) {
+        throw new Error(`Could not load vector shard ${path}: ${response.status}`);
+      }
+      return new Float32Array(await response.arrayBuffer());
+    }),
+  );
 }
 
 function getLocalVector(term) {
   if (USE_MOCK_MODEL) return mockEmbed(term);
-  const cached = vectorCache.get(term);
-  if (cached) return cached;
-
-  const rowIndex = embeddingWords.get(term);
-  if (rowIndex !== undefined) {
-    const start = rowIndex * embeddingDim;
-    const row = embeddingBytes.subarray(start, start + embeddingDim);
-    const vector = normalizeVector(
-      Array.from(row, (value) => value / embeddingScale),
-    );
-    vectorCache.set(term, vector);
-    return vector;
-  }
-
-  const endpointIndex = endpointWords.get(term);
-  if (endpointIndex !== undefined) {
-    const start = endpointIndex * endpointDim;
-    const row = endpointBytes.subarray(start, start + endpointDim);
-    const vector = normalizeVector(
-      Array.from(row, (value) => value / endpointScale),
-    );
-    vectorCache.set(term, vector);
-    return vector;
-  }
-
-  return null;
+  const index = vectorWords.get(term);
+  if (index === undefined) return null;
+  const shard = vectorShards[Math.floor(index / vectorShardSize)];
+  const rowStart = (index % vectorShardSize) * vectorDim;
+  return shard.subarray(rowStart, rowStart + vectorDim);
 }
 
 async function getVector(term) {
@@ -447,19 +398,7 @@ async function getVector(term) {
     throw new Error("That word is not in the game dictionary.");
   }
 
-  const response = await fetch(EMBED_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ word: normalized }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.error || "Could not embed that word.");
-  }
-
-  const vector = normalizeVector(payload.vector);
-  vectorCache.set(normalized, vector);
-  return vector;
+  throw new Error("That word has no fastText vector.");
 }
 
 function mockEmbed(term) {
@@ -493,13 +432,6 @@ function cosineSimilarity(left, right) {
   }
   if (!leftNorm || !rightNorm) return 0;
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
-}
-
-function normalizeVector(vector) {
-  let norm = 0;
-  for (const value of vector) norm += value * value;
-  const divisor = Math.sqrt(norm) || 1;
-  return vector.map((value) => value / divisor);
 }
 
 function render() {
@@ -814,8 +746,7 @@ function chooseBotMove() {
 
   const currentTargetGap = directTarget?.gap ?? currentPuzzle.gap;
   let best = null;
-  let fallback = null;
-  for (const word of embeddingWords.keys()) {
+  for (const word of vectorWords.keys()) {
     if (used.has(word) || word === from || word === currentPuzzle.start) continue;
     const vector = getLocalVector(word);
     if (!vector) continue;
@@ -833,13 +764,12 @@ function chooseBotMove() {
       targetGap,
     };
 
-    if (!fallback || targetGap < fallback.targetGap) fallback = candidate;
     if (targetGap < currentTargetGap - 0.01 && (!best || targetGap < best.targetGap)) {
       best = candidate;
     }
   }
 
-  return best || fallback;
+  return best;
 }
 
 function roundScore(value) {
@@ -968,8 +898,9 @@ async function shareCurrentResult() {
 
 function buildShareText() {
   const steps = Math.min(MAX_STEPS, currentRecord.path.length - 1);
+  const score = currentRecord.status === "won" ? String(steps) : "X";
   const date = currentPuzzle.date || todayId();
-  return `The Relating Game ${displayDate(date)} | ${MODES[storage.mode].label} ${steps}/${MAX_STEPS} | ${SHARE_SITE}`;
+  return `The Relating Game ${displayDate(date)} | ${MODES[storage.mode].label} ${score}/${MAX_STEPS} | ${SHARE_SITE}`;
 }
 
 function wireEvents() {

@@ -1,5 +1,17 @@
 import { expect, test } from "@playwright/test";
 
+function cosineSimilarity(left, right) {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+    leftNorm += left[index] * left[index];
+    rightNorm += right[index] * right[index];
+  }
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+}
+
 test("plays a mocked puzzle through to completion", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
@@ -69,7 +81,7 @@ test("ends after ten accepted non-target steps", async ({ page }) => {
 
   await expect(page.locator("#message")).toContainText("Out of steps");
   await expect(page.locator("#guessInput")).toBeDisabled();
-  await expect(page.locator("#shareText")).toHaveValue(/Easy 10\/10/);
+  await expect(page.locator("#shareText")).toHaveValue(/Easy X\/10/);
 });
 
 test("bot fight lets the bot race after an accepted guess", async ({ page }) => {
@@ -86,7 +98,7 @@ test("bot fight lets the bot race after an accepted guess", async ({ page }) => 
   await expect(page.locator("#guessInput")).toBeDisabled();
 });
 
-test("embeds uncached dictionary words through the Pages Function", async ({ request }) => {
+test("returns dictionary word vectors through the Pages Function", async ({ request }) => {
   const response = await request.post("/api/embed", {
     data: { word: "zymurgy" },
   });
@@ -94,8 +106,19 @@ test("embeds uncached dictionary words through the Pages Function", async ({ req
 
   const payload = await response.json();
   expect(payload.word).toBe("zymurgy");
-  expect(payload.vector).toHaveLength(50);
+  expect(payload.vector).toHaveLength(300);
   expect(payload.vector.some((value) => value !== 0)).toBeTruthy();
+});
+
+test("uses real fastText vectors for generated endpoint words", async ({ request }) => {
+  const response = await request.post("/api/embed", {
+    data: { words: ["sonny", "another"] },
+  });
+  expect(response.ok()).toBeTruthy();
+
+  const payload = await response.json();
+  const similarity = cosineSimilarity(payload.vectors.sonny, payload.vectors.another);
+  expect(1 - similarity).toBeGreaterThan(0.45);
 });
 
 test("endpoint data uses a specific but recognizable frequency band", async ({ request }) => {
@@ -108,8 +131,9 @@ test("endpoint data uses a specific but recognizable frequency band", async ({ r
   const endpoints = await endpointsResponse.json();
   expect(manifest.endpointMinFrequencyRank).toBe(10000);
   expect(manifest.endpointMaxFrequencyRank).toBe(45000);
+  expect(manifest.vectorDim).toBe(300);
+  expect(manifest.vectorWords).toBe(manifest.dictionaryWords);
   expect(endpoints.words.length).toBe(manifest.endpointWords);
-  expect(endpoints.vectors.length).toBeGreaterThan(endpoints.words.length);
 
   for (const word of ["the", "time", "people", "world", "water", "system", "zyzzyvas"]) {
     expect(endpoints.words).not.toContain(word);

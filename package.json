@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate:data": "node scripts/generate-data.mjs",
+    "generate:data": "uv run --with fasttext --with numpy python scripts/generate-data.py",
     "dev": "wrangler pages dev public --compatibility-date=2026-06-10 --port 8788 --ip 127.0.0.1",
     "serve": "node scripts/static-server.mjs",
     "test": "playwright test",
@@ -12,7 +12,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",
-    "wink-embeddings-small-en-50d": "^0.0.3",
     "wrangler": "4.99.0"
   }
 }
