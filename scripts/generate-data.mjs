@@ -3,12 +3,14 @@ import winkEmbeddings from "wink-embeddings-small-en-50d";
 
 const ENABLE_URL =
   "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt";
+const FREQUENCY_URL =
+  "https://raw.githubusercontent.com/possibly-wrong/word-frequency/main/word-frequency.txt";
 
 const OUT_DIR = new URL("../public/data/", import.meta.url);
 const DIM = 50;
 const SCALE = 127;
 const MAX_SUBWORDS = 60000;
-const COMMON_ENDPOINT_EXCLUSION = 3000;
+const COMMON_ENDPOINT_EXCLUSION = 400000;
 const MIN_NGRAM = 3;
 const MAX_NGRAM = 6;
 
@@ -58,6 +60,22 @@ function ngramsFor(word) {
   return grams;
 }
 
+function hashString(input) {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function addHashedGram(vector, gram) {
+  for (let index = 0; index < vector.length; index += 1) {
+    const hash = hashString(`${gram}:${index}`);
+    vector[index] += ((hash % 2001) - 1000) / 1000;
+  }
+}
+
 async function fetchText(url) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -67,7 +85,10 @@ async function fetchText(url) {
 }
 
 async function main() {
-  const dictionaryText = await fetchText(ENABLE_URL);
+  const [dictionaryText, frequencyText] = await Promise.all([
+    fetchText(ENABLE_URL),
+    fetchText(FREQUENCY_URL),
+  ]);
 
   const dictionaryWords = [...new Set(
     dictionaryText
@@ -76,6 +97,13 @@ async function main() {
       .filter(isDictionaryWord),
   )].sort();
   const dictionarySet = new Set(dictionaryWords);
+  const commonWords = new Set(
+    frequencyText
+      .split(/\r?\n/)
+      .slice(0, COMMON_ENDPOINT_EXCLUSION)
+      .map((line) => cleanWord(line.split("\t")[0] || ""))
+      .filter(isDictionaryWord),
+  );
 
   const rankedDirectEntries = Object.entries(embeddings)
     .map(([word, vector]) => [cleanWord(word), vector])
@@ -91,10 +119,9 @@ async function main() {
   const directEntries = [...rankedDirectEntries]
     .sort(([left], [right]) => left.localeCompare(right));
 
-  const endpointWords = rankedDirectEntries
-    .slice(COMMON_ENDPOINT_EXCLUSION)
-    .map(([word]) => word)
-    .filter(isEndpointWord);
+  const endpointWords = dictionaryWords
+    .filter(isEndpointWord)
+    .filter((word) => !commonWords.has(word));
 
   const gramCounts = new Map();
   for (const [word] of directEntries) {
@@ -128,9 +155,39 @@ async function main() {
     const average = gramSums.get(gram).map((value) => value / count);
     return quantizeVector(normalizeVector(average));
   });
+  const gramIndex = new Map(selectedGrams.map((gram, index) => [gram, index]));
+
+  function embedEndpoint(word) {
+    const vector = new Array(DIM).fill(0);
+    let count = 0;
+    const grams = ngramsFor(word);
+
+    for (const gram of grams) {
+      const rowIndex = gramIndex.get(gram);
+      if (rowIndex === undefined) continue;
+      const row = gramRows[rowIndex];
+      for (let index = 0; index < DIM; index += 1) {
+        vector[index] += row[index] / SCALE;
+      }
+      count += 1;
+    }
+
+    if (count === 0) {
+      for (const gram of grams) {
+        addHashedGram(vector, gram);
+        count += 1;
+      }
+    }
+
+    for (let index = 0; index < DIM; index += 1) {
+      vector[index] /= count;
+    }
+    return quantizeVector(normalizeVector(vector));
+  }
 
   const directWords = directEntries.map(([word]) => word);
   const directRows = directEntries.map(([, vector]) => quantizeVector(vector));
+  const endpointRows = endpointWords.map(embedEndpoint);
 
   await mkdir(OUT_DIR, { recursive: true });
   await rm(new URL("nouns.txt", OUT_DIR), { force: true });
@@ -141,7 +198,13 @@ async function main() {
   );
   await writeFile(
     new URL("endpoints.json", OUT_DIR),
-    `${JSON.stringify(endpointWords)}\n`,
+    `${JSON.stringify({
+      dim: DIM,
+      scale: SCALE,
+      source: "generated subword vectors for frequency-filtered endpoints",
+      words: endpointWords,
+      vectors: encodeInt8(endpointRows),
+    })}\n`,
   );
   await writeFile(
     new URL("embeddings.json", OUT_DIR),
@@ -173,6 +236,7 @@ async function main() {
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
         commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
+        frequencySource: FREQUENCY_URL,
         subwords: selectedGrams.length,
         dim: DIM,
         dictionarySource: ENABLE_URL,
@@ -189,6 +253,7 @@ async function main() {
         cachedWords: directWords.length,
         endpointWords: endpointWords.length,
         commonEndpointExclusion: COMMON_ENDPOINT_EXCLUSION,
+        commonWords: commonWords.size,
         subwords: selectedGrams.length,
       },
       null,

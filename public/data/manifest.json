@@ -1,8 +1,9 @@
 {
   "dictionaryWords": 168551,
   "cachedWords": 8073,
-  "endpointWords": 4949,
-  "commonEndpointExclusion": 3000,
+  "endpointWords": 4000,
+  "commonEndpointExclusion": 400000,
+  "frequencySource": "https://raw.githubusercontent.com/possibly-wrong/word-frequency/main/word-frequency.txt",
   "subwords": 50701,
   "dim": 50,
   "dictionarySource": "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt"

@@ -97,3 +97,20 @@ test("embeds uncached dictionary words through the Pages Function", async ({ req
   expect(payload.vector).toHaveLength(50);
   expect(payload.vector.some((value) => value !== 0)).toBeTruthy();
 });
+
+test("endpoint data excludes the large common-word band", async ({ request }) => {
+  const manifestResponse = await request.get("/data/manifest.json");
+  const endpointsResponse = await request.get("/data/endpoints.json");
+  expect(manifestResponse.ok()).toBeTruthy();
+  expect(endpointsResponse.ok()).toBeTruthy();
+
+  const manifest = await manifestResponse.json();
+  const endpoints = await endpointsResponse.json();
+  expect(manifest.commonEndpointExclusion).toBeGreaterThanOrEqual(400000);
+  expect(endpoints.words.length).toBe(manifest.endpointWords);
+  expect(endpoints.vectors.length).toBeGreaterThan(endpoints.words.length);
+
+  for (const word of ["the", "time", "people", "world", "water", "system"]) {
+    expect(endpoints.words).not.toContain(word);
+  }
+});

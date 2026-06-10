@@ -70,6 +70,10 @@ let embeddingWords = new Map();
 let embeddingBytes = new Int8Array();
 let embeddingDim = 0;
 let embeddingScale = 127;
+let endpointWords = new Map();
+let endpointBytes = new Int8Array();
+let endpointDim = 0;
+let endpointScale = 127;
 let currentPuzzle = null;
 let currentRecord = null;
 let targetGapRequest = 0;
@@ -223,7 +227,7 @@ function pickPair(seedText) {
     const target = endpoints[Math.floor(random() * endpoints.length)];
     if (!start || !target || start === target) continue;
 
-    const score = scoreCachedPair(start, target);
+    const score = scoreLocalPair(start, target);
     if (!score) continue;
     const gap = Math.max(0, 1 - score.similarity);
     if (
@@ -240,12 +244,12 @@ function pickPair(seedText) {
   if (fallback) return fallback;
   const start = endpoints[0] || "time";
   const target = endpoints[1] || "world";
-  return { start, target, gap: scoreCachedPair(start, target)?.gap || TARGET_PAIR_GAP };
+  return { start, target, gap: scoreLocalPair(start, target)?.gap || TARGET_PAIR_GAP };
 }
 
-function scoreCachedPair(from, to) {
-  const fromVector = getCachedVector(from);
-  const toVector = getCachedVector(to);
+function scoreLocalPair(from, to) {
+  const fromVector = getLocalVector(from);
+  const toVector = getLocalVector(to);
   if (!fromVector || !toVector) return null;
   const similarity = cosineSimilarity(fromVector, toVector);
   return {
@@ -371,7 +375,7 @@ async function loadGameData() {
 
   const dictionaryText = await dictionaryResponse.text();
   dictionary = new Set(dictionaryText.split(/\r?\n/).filter(Boolean));
-  endpoints = await endpointsResponse.json();
+  loadEndpointTable(await endpointsResponse.json());
   manifest = await manifestResponse.json();
   loadEmbeddingTable(await embeddingsResponse.json());
 
@@ -387,6 +391,14 @@ function loadEmbeddingTable(data) {
   embeddingWords = new Map(data.words.map((word, index) => [word, index]));
 }
 
+function loadEndpointTable(data) {
+  endpoints = data.words;
+  endpointDim = data.dim;
+  endpointScale = data.scale;
+  endpointBytes = decodeBase64Int8(data.vectors);
+  endpointWords = new Map(data.words.map((word, index) => [word, index]));
+}
+
 function decodeBase64Int8(value) {
   const binary = atob(value);
   const bytes = new Int8Array(binary.length);
@@ -396,27 +408,40 @@ function decodeBase64Int8(value) {
   return bytes;
 }
 
-function getCachedVector(term) {
+function getLocalVector(term) {
   if (USE_MOCK_MODEL) return mockEmbed(term);
   const cached = vectorCache.get(term);
   if (cached) return cached;
 
   const rowIndex = embeddingWords.get(term);
-  if (rowIndex === undefined) return null;
+  if (rowIndex !== undefined) {
+    const start = rowIndex * embeddingDim;
+    const row = embeddingBytes.subarray(start, start + embeddingDim);
+    const vector = normalizeVector(
+      Array.from(row, (value) => value / embeddingScale),
+    );
+    vectorCache.set(term, vector);
+    return vector;
+  }
 
-  const start = rowIndex * embeddingDim;
-  const row = embeddingBytes.subarray(start, start + embeddingDim);
-  const vector = normalizeVector(
-    Array.from(row, (value) => value / embeddingScale),
-  );
-  vectorCache.set(term, vector);
-  return vector;
+  const endpointIndex = endpointWords.get(term);
+  if (endpointIndex !== undefined) {
+    const start = endpointIndex * endpointDim;
+    const row = endpointBytes.subarray(start, start + endpointDim);
+    const vector = normalizeVector(
+      Array.from(row, (value) => value / endpointScale),
+    );
+    vectorCache.set(term, vector);
+    return vector;
+  }
+
+  return null;
 }
 
 async function getVector(term) {
   const normalized = normalizeTerm(term);
-  const cached = getCachedVector(normalized);
-  if (cached) return cached;
+  const local = getLocalVector(normalized);
+  if (local) return local;
 
   if (!dictionary.has(normalized)) {
     throw new Error("That word is not in the game dictionary.");
@@ -772,7 +797,7 @@ function chooseBotMove() {
   const from = bot.path[bot.path.length - 1];
   const moveLimit = getMoveLimit();
   const used = new Set(bot.path);
-  const directTarget = scoreCachedPair(from, currentPuzzle.target);
+  const directTarget = scoreLocalPair(from, currentPuzzle.target);
   if (directTarget && directTarget.gap <= moveLimit + 0.000001) {
     return {
       from,
@@ -783,8 +808,8 @@ function chooseBotMove() {
     };
   }
 
-  const fromVector = getCachedVector(from);
-  const targetVector = getCachedVector(currentPuzzle.target);
+  const fromVector = getLocalVector(from);
+  const targetVector = getLocalVector(currentPuzzle.target);
   if (!fromVector || !targetVector) return null;
 
   const currentTargetGap = directTarget?.gap ?? currentPuzzle.gap;
@@ -792,7 +817,7 @@ function chooseBotMove() {
   let fallback = null;
   for (const word of embeddingWords.keys()) {
     if (used.has(word) || word === from || word === currentPuzzle.start) continue;
-    const vector = getCachedVector(word);
+    const vector = getLocalVector(word);
     if (!vector) continue;
 
     const stepSimilarity = cosineSimilarity(fromVector, vector);
