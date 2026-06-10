@@ -98,6 +98,20 @@ test("bot fight lets the bot race after an accepted guess", async ({ page }) => 
   await expect(page.locator("#guessInput")).toBeDisabled();
 });
 
+test("loads the daily puzzle from the server API", async ({ page, request }) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const response = await request.get(`/api/puzzle?date=${today}`);
+  expect(response.ok()).toBeTruthy();
+  const puzzle = await response.json();
+
+  await page.goto("/?mockModel=1");
+
+  await expect(page.locator("#startWord")).toHaveText(puzzle.start);
+  await expect(page.locator("#targetWord")).toHaveText(puzzle.target);
+  await expect(page.locator("#startGapLabel")).toHaveText(`Start gap: ${puzzle.gap.toFixed(2)}`);
+  await expect(page.locator("#guessInput")).toBeFocused();
+});
+
 test("returns dictionary word vectors through the Pages Function", async ({ request }) => {
   const response = await request.post("/api/embed", {
     data: { word: "zymurgy" },

@@ -104,10 +104,14 @@ h2 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .control-strip {
   margin-top: 22px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--line);
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
@@ -182,7 +186,7 @@ input[type="date"] {
 }
 
 .game-board {
-  margin-top: 42px;
+  margin-top: 40px;
 }
 
 .word-grid {
@@ -523,6 +527,7 @@ dialog::backdrop {
 
   .control-strip {
     margin-top: 18px;
+    padding-bottom: 24px;
   }
 
   .date-controls {

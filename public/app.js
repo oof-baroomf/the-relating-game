@@ -2,6 +2,7 @@ const DICTIONARY_URL = "./data/dictionary.txt";
 const ENDPOINTS_URL = "./data/endpoints.json";
 const LEXICON_URL = "./data/lexicon.json";
 const MANIFEST_URL = "./data/manifest.json";
+const PUZZLE_API_URL = "./api/puzzle";
 const STORAGE_KEY = "the-relating-game:v3";
 const SHARE_SITE = "relating-game.pages.dev";
 const START_DATE = "2026-06-10";
@@ -202,7 +203,7 @@ function mulberry32(seed) {
   };
 }
 
-function pickPair(seedText) {
+function getForcedPair() {
   const forcedStart = normalizeTerm(TEST_PARAMS.get("start") || "");
   const forcedTarget = normalizeTerm(TEST_PARAMS.get("target") || "");
   if (USE_MOCK_MODEL && forcedStart && forcedTarget) {
@@ -212,7 +213,10 @@ function pickPair(seedText) {
       gap: Number(TEST_PARAMS.get("gap")) || 1,
     };
   }
+  return null;
+}
 
+function pickPair(seedText) {
   const random = mulberry32(hashString(seedText));
   for (;;) {
     const start = endpoints[Math.floor(random() * endpoints.length)];
@@ -238,7 +242,7 @@ function scoreLocalPair(from, to) {
   };
 }
 
-function buildPuzzle() {
+async function buildPuzzle() {
   const kind = storage.kind;
   const date =
     kind === "daily" ? todayId() : kind === "archive" ? storage.archiveDate : "";
@@ -250,8 +254,10 @@ function buildPuzzle() {
     saveStorage();
   }
 
-  const seedText = kind === "random" ? `random:${randomSeed}` : `date:${date}`;
-  const pair = pickPair(seedText);
+  const forcedPair = getForcedPair();
+  const pair =
+    forcedPair ||
+    (kind === "random" ? pickPair(`random:${randomSeed}`) : await fetchDailyPuzzle(date));
   return {
     kind,
     date,
@@ -263,6 +269,15 @@ function buildPuzzle() {
       pair.gap || TARGET_PAIR_GAP,
     )}`,
   };
+}
+
+async function fetchDailyPuzzle(date) {
+  const response = await fetch(`${PUZZLE_API_URL}?date=${encodeURIComponent(date)}`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Daily puzzle is not available.");
+  }
+  return payload;
 }
 
 function createRandomSeed() {
@@ -832,14 +847,14 @@ function switchKind(kind) {
     storage.randomSeed = createRandomSeed();
   }
   saveStorage();
-  loadPuzzle();
+  queuePuzzleLoad();
 }
 
 function switchMode(mode) {
   if (!MODES[mode]) return;
   storage.mode = mode;
   saveStorage();
-  loadPuzzle();
+  queuePuzzleLoad();
 }
 
 function toggleBotFight() {
@@ -856,12 +871,15 @@ function toggleBotFight() {
   focusGuessInput();
 }
 
-function loadPuzzle() {
-  currentPuzzle = buildPuzzle();
+async function loadPuzzle() {
+  currentPuzzle = await buildPuzzle();
   currentRecord = getRecord();
   render();
   if (currentRecord.done) {
-    setMessage(currentRecord.status === "won" ? "Solved." : "Game over.", currentRecord.status === "won" ? "success" : "error");
+    setMessage(
+      currentRecord.status === "won" ? "Solved." : "Game over.",
+      currentRecord.status === "won" ? "success" : "error",
+    );
   } else {
     setMessage("Enter a word that is close enough to your current word.");
   }
@@ -869,18 +887,25 @@ function loadPuzzle() {
   focusGuessInput();
 }
 
+function queuePuzzleLoad() {
+  loadPuzzle().catch((error) => {
+    setStatus("Error", "error");
+    setMessage(error.message || "Could not load that puzzle.", "error");
+  });
+}
+
 function setArchiveDate(dateId) {
   storage.kind = "archive";
   storage.archiveDate = clampDate(dateId);
   saveStorage();
-  loadPuzzle();
+  queuePuzzleLoad();
 }
 
 function newRandomPuzzle() {
   storage.kind = "random";
   storage.randomSeed = createRandomSeed();
   saveStorage();
-  loadPuzzle();
+  queuePuzzleLoad();
 }
 
 async function shareCurrentResult() {
@@ -938,8 +963,8 @@ async function init() {
 
   try {
     await loadGameData();
+    await loadPuzzle();
     setStatus("Ready", "ready");
-    loadPuzzle();
   } catch (error) {
     setStatus("Error", "error");
     setMessage(error.message || "Could not prepare the puzzle.", "error");

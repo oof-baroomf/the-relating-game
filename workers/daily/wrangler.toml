@@ -1,7 +1,11 @@
-name = "relating-game"
+name = "relating-game-daily"
+main = "index.js"
 compatibility_date = "2026-06-10"
-pages_build_output_dir = "public"
+workers_dev = true
 
 [[kv_namespaces]]
 binding = "DAILY_PUZZLES"
 id = "8d45875c978547af9e4ed14006e39e14"
+
+[triggers]
+crons = ["5 0 * * *"]
