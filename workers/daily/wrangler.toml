@@ -8,4 +8,4 @@ binding = "DAILY_PUZZLES"
 id = "8d45875c978547af9e4ed14006e39e14"
 
 [triggers]
-crons = ["5 7 * * *", "5 8 * * *"]
+crons = ["0 7 * * *", "0 8 * * *"]

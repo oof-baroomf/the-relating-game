@@ -26,11 +26,11 @@ test("uses the Pacific calendar day for daily rollover", () => {
 test("daily worker cron covers Pacific midnight in daylight and standard time", async () => {
   const config = await readFile("workers/daily/wrangler.toml", "utf8");
 
-  expect(config).toContain('crons = ["5 7 * * *", "5 8 * * *"]');
-  expect(isPacificMidnight("2026-06-10T07:05:00Z")).toBe(true);
-  expect(isPacificMidnight("2026-06-10T08:05:00Z")).toBe(false);
-  expect(isPacificMidnight("2026-12-10T07:05:00Z")).toBe(false);
-  expect(isPacificMidnight("2026-12-10T08:05:00Z")).toBe(true);
+  expect(config).toContain('crons = ["0 7 * * *", "0 8 * * *"]');
+  expect(isPacificMidnight("2026-06-10T07:00:00Z")).toBe(true);
+  expect(isPacificMidnight("2026-06-10T08:00:00Z")).toBe(false);
+  expect(isPacificMidnight("2026-12-10T07:00:00Z")).toBe(false);
+  expect(isPacificMidnight("2026-12-10T08:00:00Z")).toBe(true);
 });
 
 async function routeTinyGameData(page, overrides = {}) {
