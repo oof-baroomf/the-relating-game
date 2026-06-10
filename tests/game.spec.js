@@ -1,4 +1,8 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test } from "@playwright/test";
+
+import { isPacificMidnight, pacificDateId } from "../public/shared/pacific-time.js";
 
 function cosineSimilarity(left, right) {
   let dot = 0;
@@ -11,6 +15,23 @@ function cosineSimilarity(left, right) {
   }
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
+
+test("uses the Pacific calendar day for daily rollover", () => {
+  expect(pacificDateId("2026-06-10T06:59:00Z")).toBe("2026-06-09");
+  expect(pacificDateId("2026-06-10T07:00:00Z")).toBe("2026-06-10");
+  expect(pacificDateId("2026-12-10T07:59:00Z")).toBe("2026-12-09");
+  expect(pacificDateId("2026-12-10T08:00:00Z")).toBe("2026-12-10");
+});
+
+test("daily worker cron covers Pacific midnight in daylight and standard time", async () => {
+  const config = await readFile("workers/daily/wrangler.toml", "utf8");
+
+  expect(config).toContain('crons = ["5 7 * * *", "5 8 * * *"]');
+  expect(isPacificMidnight("2026-06-10T07:05:00Z")).toBe(true);
+  expect(isPacificMidnight("2026-06-10T08:05:00Z")).toBe(false);
+  expect(isPacificMidnight("2026-12-10T07:05:00Z")).toBe(false);
+  expect(isPacificMidnight("2026-12-10T08:05:00Z")).toBe(true);
+});
 
 async function routeTinyGameData(page, overrides = {}) {
   const dictionaryWords =
@@ -206,7 +227,7 @@ test("reports a puzzle word with no loaded vector instead of crashing", async ({
 });
 
 test("loads the daily puzzle from the server API", async ({ page, request }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = pacificDateId();
   const response = await request.get(`/api/puzzle?date=${today}`);
   expect(response.ok()).toBeTruthy();
   const puzzle = await response.json();

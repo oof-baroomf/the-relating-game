@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { pacificDateId } from "../public/shared/pacific-time.js";
 import { getScheduledDailyPuzzle } from "../src/shared/daily-schedule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -11,7 +12,7 @@ const rootDir = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
 const local = args.includes("--local");
 const dateArg = args.find((arg) => arg.startsWith("--date="));
-const date = dateArg ? dateArg.slice("--date=".length) : new Date().toISOString().slice(0, 10);
+const date = dateArg ? dateArg.slice("--date=".length) : pacificDateId();
 const puzzle = getScheduledDailyPuzzle(date);
 
 if (!puzzle) {

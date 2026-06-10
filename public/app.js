@@ -1,3 +1,5 @@
+import { pacificDateId } from "./shared/pacific-time.js";
+
 const DICTIONARY_URL = "./data/dictionary.txt";
 const BLOCKED_WORDS_URL = "./data/blocked-words.json";
 const ENDPOINTS_URL = "./data/endpoints.json";
@@ -134,7 +136,7 @@ function setMessage(text, tone = "") {
 }
 
 function todayId() {
-  return new Date().toISOString().slice(0, 10);
+  return pacificDateId();
 }
 
 function formatDateId(date) {

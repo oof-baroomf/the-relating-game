@@ -1,13 +1,16 @@
+import { pacificDateId } from "../../public/shared/pacific-time.js";
+
 const START_DATE = "2026-06-10";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
-  const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+  const today = pacificDateId();
+  const date = url.searchParams.get("date") || today;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return json({ error: "Expected date as YYYY-MM-DD." }, 422);
   }
-  if (date < START_DATE || date > new Date().toISOString().slice(0, 10)) {
+  if (date < START_DATE || date > today) {
     return json({ error: "That daily puzzle date is not available." }, 404);
   }
 

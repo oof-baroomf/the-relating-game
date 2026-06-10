@@ -1,7 +1,8 @@
 import { getScheduledDailyPuzzle } from "../../src/shared/daily-schedule.js";
+import { isPacificMidnight, pacificDateId } from "../../public/shared/pacific-time.js";
 
 function dateIdFromScheduledTime(scheduledTime) {
-  return new Date(scheduledTime).toISOString().slice(0, 10);
+  return pacificDateId(scheduledTime);
 }
 
 async function setDailyPuzzle(env, date) {
@@ -21,13 +22,14 @@ async function setDailyPuzzle(env, date) {
 
 export default {
   async scheduled(controller, env, ctx) {
+    if (!isPacificMidnight(controller.scheduledTime)) return;
     ctx.waitUntil(setDailyPuzzle(env, dateIdFromScheduledTime(controller.scheduledTime)));
   },
 
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = pacificDateId();
       const puzzle = await env.DAILY_PUZZLES.get(`daily:${today}`, "json");
       return Response.json({
         ok: true,
