@@ -20,15 +20,25 @@ export async function onRequestPost({ request, env }) {
     return json({ error: `"${badShape}" is not a valid game word shape.` }, 422);
   }
 
-  const lexicon = await loadLexicon(env, request.url);
+  let lexicon;
+  try {
+    lexicon = await loadLexicon(env, request.url);
+  } catch (error) {
+    return json({ error: error.message || "Vector data is not available." }, 500);
+  }
+
   const missing = normalizedWords.find((word) => !lexicon.wordIndex.has(word));
   if (missing) {
     return json({ error: `"${missing}" is not in the game dictionary.` }, 422);
   }
 
   const vectors = {};
-  for (const word of normalizedWords) {
-    vectors[word] = Array.from(await getVector(env, request.url, lexicon, word));
+  try {
+    for (const word of normalizedWords) {
+      vectors[word] = Array.from(await getVector(env, request.url, lexicon, word));
+    }
+  } catch (error) {
+    return json({ error: error.message || "Vector data is not available." }, 500);
   }
 
   if (normalizedWords.length === 1) {
@@ -54,22 +64,45 @@ function isWordShape(word) {
 
 async function loadLexicon(env, requestUrl) {
   lexiconPromise ||= fetchAssetJson(env, requestUrl, "/data/lexicon.json").then(
-    (data) => ({
-      dim: data.dim,
-      shardSize: data.shardSize,
-      shards: data.shards,
-      wordIndex: new Map(data.words.map((word, index) => [word, index])),
-    }),
+    (data) => {
+      if (
+        !Number.isInteger(data.dim) ||
+        !Number.isInteger(data.shardSize) ||
+        !Array.isArray(data.words) ||
+        !Array.isArray(data.shards) ||
+        data.shards.length !== Math.ceil(data.words.length / data.shardSize)
+      ) {
+        throw new Error("Vector metadata does not match the word table.");
+      }
+      return {
+        dim: data.dim,
+        shardSize: data.shardSize,
+        shards: data.shards,
+        wordCount: data.words.length,
+        wordIndex: new Map(data.words.map((word, index) => [word, index])),
+      };
+    },
   );
   return lexiconPromise;
 }
 
 async function getVector(env, requestUrl, lexicon, word) {
   const index = lexicon.wordIndex.get(word);
+  if (!Number.isInteger(index) || index < 0 || index >= lexicon.wordCount) {
+    throw new Error(`Vector index for "${word}" is not valid.`);
+  }
   const shardIndex = Math.floor(index / lexicon.shardSize);
-  const shard = await loadShard(env, requestUrl, lexicon.shards[shardIndex]);
+  const shardPath = lexicon.shards[shardIndex];
+  if (!shardPath) {
+    throw new Error(`Vector shard ${shardIndex} is not loaded.`);
+  }
+  const shard = await loadShard(env, requestUrl, shardPath);
   const rowStart = (index % lexicon.shardSize) * lexicon.dim;
-  return shard.subarray(rowStart, rowStart + lexicon.dim);
+  const rowEnd = rowStart + lexicon.dim;
+  if (rowEnd > shard.length) {
+    throw new Error(`Vector row for "${word}" is outside shard ${shardIndex}.`);
+  }
+  return shard.subarray(rowStart, rowEnd);
 }
 
 async function loadShard(env, requestUrl, path) {

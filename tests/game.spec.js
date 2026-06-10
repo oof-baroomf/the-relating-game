@@ -12,6 +12,55 @@ function cosineSimilarity(left, right) {
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
+async function routeTinyGameData(page, overrides = {}) {
+  const dictionaryWords =
+    overrides.dictionaryWords ||
+    ["alpha", "beta", ...Array.from({ length: 1000 }, (_, index) => `dummyword${index}`)];
+  const endpointWords =
+    overrides.endpointWords ||
+    Array.from({ length: 101 }, (_, index) => `endpointword${index}`);
+  const lexicon =
+    overrides.lexicon || {
+      dim: 2,
+      shardSize: 1,
+      words: ["alpha"],
+      shards: ["data/vectors/000.bin"],
+    };
+  const shard =
+    overrides.shard ||
+    Buffer.from(new Float32Array([1, 0]).buffer);
+
+  await page.route("**/data/dictionary.txt", (route) =>
+    route.fulfill({ contentType: "text/plain", body: `${dictionaryWords.join("\n")}\n` }),
+  );
+  await page.route("**/data/blocked-words.json", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ words: [] }) }),
+  );
+  await page.route("**/data/endpoints.json", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ words: endpointWords }),
+    }),
+  );
+  await page.route("**/data/manifest.json", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        dictionaryWords: dictionaryWords.length,
+        endpointWords: endpointWords.length,
+        vectorWords: lexicon.words.length,
+        vectorDim: lexicon.dim,
+      }),
+    }),
+  );
+  await page.route("**/data/lexicon.json", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(lexicon) }),
+  );
+  await page.route("**/data/vectors/000.bin", (route) =>
+    route.fulfill({ contentType: "application/octet-stream", body: shard }),
+  );
+}
+
 test("plays a mocked puzzle through to completion", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
@@ -112,6 +161,48 @@ test("give up ends the game and reveals RelateBot's solution", async ({ page }) 
   await expect(page.locator("#solutionSection")).toBeVisible();
   await expect(page.locator("#solutionPathList .path-word")).toContainText(["cat", "dog"]);
   await expect(page.locator("#guessInput")).toBeDisabled();
+});
+
+test("reports malformed vector metadata instead of crashing", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await routeTinyGameData(page, {
+    lexicon: {
+      dim: 2,
+      shardSize: 1,
+      words: ["alpha", "omega"],
+      shards: ["data/vectors/000.bin"],
+    },
+  });
+
+  await page.goto("/");
+
+  await expect(page.locator("#modelStatus")).toHaveText("Error");
+  await expect(page.locator("#message")).toContainText("Vector metadata does not match");
+  expect(pageErrors).toEqual([]);
+});
+
+test("reports a puzzle word with no loaded vector instead of crashing", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await routeTinyGameData(page);
+  await page.route("**/api/puzzle?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        date: "2026-06-10",
+        start: "alpha",
+        target: "beta",
+        gap: 1,
+      }),
+    }),
+  );
+
+  await page.goto("/");
+
+  await expect(page.locator("#modelStatus")).toHaveText("Error");
+  await expect(page.locator("#message")).toContainText('Puzzle word "beta" has no loaded vector');
+  expect(pageErrors).toEqual([]);
 });
 
 test("loads the daily puzzle from the server API", async ({ page, request }) => {

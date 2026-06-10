@@ -246,6 +246,23 @@ function scoreLocalPair(from, to) {
   };
 }
 
+function validatePuzzlePair(pair) {
+  for (const word of [pair.start, pair.target]) {
+    if (!isWordShape(word)) {
+      throw new Error(`Puzzle word "${word}" is not a valid game word.`);
+    }
+    if (isBlockedWord(word)) {
+      throw new Error(`Puzzle word "${word}" is blocked.`);
+    }
+    if (!USE_MOCK_MODEL && !getLocalVector(word)) {
+      throw new Error(`Puzzle word "${word}" has no loaded vector.`);
+    }
+  }
+  if (!Number.isFinite(pair.gap) || pair.gap <= 0) {
+    throw new Error("Puzzle gap is not valid.");
+  }
+}
+
 async function buildPuzzle() {
   const kind = storage.kind;
   const date =
@@ -262,6 +279,7 @@ async function buildPuzzle() {
   const pair =
     forcedPair ||
     (kind === "random" ? pickPair(`random:${randomSeed}`) : await fetchDailyPuzzle(date));
+  validatePuzzlePair(pair);
   return {
     kind,
     date,
@@ -388,17 +406,40 @@ function loadEndpointTable(data) {
 }
 
 async function loadVectorTable(data) {
+  if (
+    !Number.isInteger(data.dim) ||
+    !Number.isInteger(data.shardSize) ||
+    !Array.isArray(data.words) ||
+    !Array.isArray(data.shards)
+  ) {
+    throw new Error("Vector metadata does not match the word table.");
+  }
   vectorDim = data.dim;
   vectorShardSize = data.shardSize;
   vectorWordList = data.words;
+  const expectedShardCount = Math.ceil(vectorWordList.length / vectorShardSize);
+  if (data.shards.length !== expectedShardCount) {
+    throw new Error("Vector metadata does not match the word table.");
+  }
   vectorWords = new Map(data.words.map((word, index) => [word, index]));
   vectorShards = await Promise.all(
-    data.shards.map(async (path) => {
+    data.shards.map(async (path, shardIndex) => {
       const response = await fetch(`./${path}`);
       if (!response.ok) {
         throw new Error(`Could not load vector shard ${path}: ${response.status}`);
       }
-      return new Float32Array(await response.arrayBuffer());
+      const shard = new Float32Array(await response.arrayBuffer());
+      const expectedRows = Math.min(
+        vectorShardSize,
+        vectorWordList.length - shardIndex * vectorShardSize,
+      );
+      const expectedLength = expectedRows * vectorDim;
+      if (shard.length !== expectedLength) {
+        throw new Error(
+          `Vector shard ${path} has ${shard.length} values, expected ${expectedLength}.`,
+        );
+      }
+      return shard;
     }),
   );
 }
@@ -411,9 +452,20 @@ function getLocalVector(term) {
 }
 
 function getLocalVectorByIndex(index) {
-  const shard = vectorShards[Math.floor(index / vectorShardSize)];
+  if (!Number.isInteger(index) || index < 0 || index >= vectorWordList.length) {
+    throw new Error(`Vector index ${String(index)} is not valid.`);
+  }
+  const shardIndex = Math.floor(index / vectorShardSize);
+  const shard = vectorShards[shardIndex];
+  if (!shard) {
+    throw new Error(`Vector shard ${shardIndex} is not loaded.`);
+  }
   const rowStart = (index % vectorShardSize) * vectorDim;
-  return shard.subarray(rowStart, rowStart + vectorDim);
+  const rowEnd = rowStart + vectorDim;
+  if (rowEnd > shard.length) {
+    throw new Error(`Vector row ${index} is outside shard ${shardIndex}.`);
+  }
+  return shard.subarray(rowStart, rowEnd);
 }
 
 async function getVector(term) {
@@ -760,14 +812,19 @@ async function revealRelateBotSolution() {
   persistRecord();
   render();
 
-  const path = await findRelateBotPath();
-  if (path) {
-    currentRecord.solution = {
-      status: "ready",
-      path,
-      scores: await scoreSolutionPath(path),
-    };
-  } else {
+  try {
+    const path = await findRelateBotPath();
+    if (path) {
+      currentRecord.solution = {
+        status: "ready",
+        path,
+        scores: await scoreSolutionPath(path),
+      };
+    } else {
+      currentRecord.solution = { status: "none", path: [], scores: [] };
+    }
+  } catch (error) {
+    setMessage(error.message || "RelateBot could not score this puzzle.", "error");
     currentRecord.solution = { status: "none", path: [], scores: [] };
   }
 
