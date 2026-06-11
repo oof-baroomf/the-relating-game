@@ -24,6 +24,10 @@ const TEST_PARAMS = new URLSearchParams(window.location.search);
 const USE_MOCK_MODEL = TEST_PARAMS.has("mockModel");
 
 const elements = {
+  bootScreen: document.querySelector("#bootScreen"),
+  bootCard: document.querySelector(".boot-card"),
+  bootProgress: document.querySelector("#bootProgress"),
+  bootText: document.querySelector("#bootText"),
   modelStatus: document.querySelector("#modelStatus"),
   kindButtons: [...document.querySelectorAll("[data-kind]")],
   modeButtons: [...document.querySelectorAll("[data-mode]")],
@@ -85,6 +89,7 @@ let vectorCache = new Map();
 let currentPuzzle = null;
 let currentRecord = null;
 let targetGapRequest = 0;
+let hardPathCache = new Map();
 
 const defaultStorage = {
   mode: "easy",
@@ -129,6 +134,33 @@ function mergeStorage(base, value) {
 
 function saveStorage() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+}
+
+function setBootProgress(value, text, tone = "") {
+  elements.bootScreen.hidden = false;
+  elements.bootScreen.setAttribute("aria-busy", tone === "error" ? "false" : "true");
+  elements.bootCard.classList.toggle("error", tone === "error");
+  document.body.classList.add("is-loading");
+  if (Number.isFinite(value)) {
+    elements.bootProgress.max = 100;
+    elements.bootProgress.value = Math.max(0, Math.min(100, value));
+  } else {
+    elements.bootProgress.removeAttribute("value");
+  }
+  elements.bootText.textContent = text;
+}
+
+function hideBoot() {
+  elements.bootProgress.value = 100;
+  elements.bootText.textContent = "Ready.";
+  elements.bootScreen.hidden = true;
+  elements.bootScreen.setAttribute("aria-busy", "false");
+  elements.bootCard.classList.remove("error");
+  document.body.classList.remove("is-loading");
+}
+
+function showBootError(text) {
+  setBootProgress(null, text, "error");
 }
 
 function setStatus(text, tone = "") {
@@ -325,8 +357,8 @@ function gameKey() {
   return `${storage.mode}:${currentPuzzle.key}`;
 }
 
-function getMoveLimit() {
-  return currentPuzzle.gap / MODES[storage.mode].gapDivisor;
+function getMoveLimit(mode = storage.mode) {
+  return currentPuzzle.gap / MODES[mode].gapDivisor;
 }
 
 function createEmptyRecord() {
@@ -373,16 +405,27 @@ function persistRecord() {
 }
 
 async function loadGameData() {
+  setBootProgress(8, "Loading word list.");
   setStatus("Loading word list");
   setMessage("Loading word list and puzzle index.");
+  const fetchBoot = (url, progress, label) =>
+    fetch(url).then((response) => {
+      setBootProgress(progress, label);
+      return response;
+    });
   const requests = USE_MOCK_MODEL
-    ? [fetch(DICTIONARY_URL), fetch(BLOCKED_WORDS_URL), fetch(ENDPOINTS_URL), fetch(MANIFEST_URL)]
+    ? [
+        fetchBoot(DICTIONARY_URL, 24, "Loaded word list."),
+        fetchBoot(BLOCKED_WORDS_URL, 36, "Loaded safety list."),
+        fetchBoot(ENDPOINTS_URL, 48, "Loaded puzzle words."),
+        fetchBoot(MANIFEST_URL, 60, "Loaded game manifest."),
+      ]
     : [
-        fetch(DICTIONARY_URL),
-        fetch(BLOCKED_WORDS_URL),
-        fetch(ENDPOINTS_URL),
-        fetch(LEXICON_URL),
-        fetch(MANIFEST_URL),
+        fetchBoot(DICTIONARY_URL, 18, "Loaded word list."),
+        fetchBoot(BLOCKED_WORDS_URL, 28, "Loaded safety list."),
+        fetchBoot(ENDPOINTS_URL, 38, "Loaded puzzle words."),
+        fetchBoot(LEXICON_URL, 54, "Loaded distance index."),
+        fetchBoot(MANIFEST_URL, 62, "Loaded game manifest."),
       ];
   const responses = await Promise.all(requests);
 
@@ -399,6 +442,7 @@ async function loadGameData() {
     fourthResponse,
     fifthResponse,
   ] = responses;
+  setBootProgress(68, "Preparing word list.");
   const dictionaryText = await dictionaryResponse.text();
   dictionary = new Set(dictionaryText.split(/\r?\n/).filter(Boolean));
   blockedWords = new Set((await blockedWordsResponse.json()).words);
@@ -413,6 +457,7 @@ async function loadGameData() {
   if (dictionary.size < 1000 || (!USE_MOCK_MODEL && endpoints.length < 100) || !manifest) {
     throw new Error("Game data did not contain enough words.");
   }
+  setBootProgress(74, "Loading puzzle.");
 }
 
 function loadEndpointTable(data) {
@@ -443,7 +488,11 @@ function loadVectorMetadata(data) {
   vectorCache = new Map();
 }
 
-async function ensureVectorShardsLoaded(reason = "Loading word distance data") {
+async function ensureVectorShardsLoaded(
+  reason = "Loading word distance data",
+  progressStart = 35,
+  progressEnd = 86,
+) {
   if (USE_MOCK_MODEL || vectorShardsLoaded) return;
   if (vectorShardLoadPromise) return vectorShardLoadPromise;
   if (!vectorShardPaths.length) {
@@ -455,6 +504,7 @@ async function ensureVectorShardsLoaded(reason = "Loading word distance data") {
     const total = vectorShardPaths.length;
     setStatus(`${reason}: 0/${total}`);
     setMessage(`${reason}. Loading distance data 0/${total}.`);
+    setBootProgress(progressStart, `${reason}: 0/${total}.`);
 
     vectorShards = await Promise.all(
       vectorShardPaths.map(async (path, shardIndex) => {
@@ -476,6 +526,10 @@ async function ensureVectorShardsLoaded(reason = "Loading word distance data") {
         completed += 1;
         setStatus(`${reason}: ${completed}/${total}`);
         setMessage(`${reason}. Loading distance data ${completed}/${total}.`);
+        setBootProgress(
+          progressStart + (completed / total) * (progressEnd - progressStart),
+          `${reason}: ${completed}/${total}.`,
+        );
         return shard;
       }),
     );
@@ -923,7 +977,7 @@ async function revealRelateBotSolution() {
   render();
 
   try {
-    const path = await findRelateBotPath();
+    const path = await findRelateBotPath(getMoveLimit(), "Finding RelateBot path", 35, 86);
     if (path) {
       currentRecord.solution = {
         status: "ready",
@@ -942,23 +996,27 @@ async function revealRelateBotSolution() {
   render();
 }
 
-async function findRelateBotPath() {
+async function findRelateBotPath(
+  moveLimit = getMoveLimit(),
+  reason = "Finding RelateBot path",
+  progressStart = 35,
+  progressEnd = 86,
+) {
   const direct = await scorePair(currentPuzzle.start, currentPuzzle.target);
-  if (direct.gap <= getMoveLimit() + 0.000001) {
+  if (direct.gap <= moveLimit + 0.000001) {
     return [currentPuzzle.start, currentPuzzle.target];
   }
 
-  await ensureVectorShardsLoaded("Finding RelateBot path");
-  const shortPath = await findShortBridgePath();
+  await ensureVectorShardsLoaded(reason, progressStart, progressEnd);
+  const shortPath = await findShortBridgePath(moveLimit);
   if (shortPath) return shortPath;
 
-  return findGreedyRelateBotPath();
+  return findGreedyRelateBotPath(moveLimit);
 }
 
-async function findShortBridgePath() {
+async function findShortBridgePath(moveLimit) {
   if (USE_MOCK_MODEL) return null;
 
-  const moveLimit = getMoveLimit();
   const minSimilarity = 1 - moveLimit - 0.000001;
   const startIndex = vectorWords.get(currentPuzzle.start);
   const targetIndex = vectorWords.get(currentPuzzle.target);
@@ -1009,8 +1067,7 @@ async function scanNeighborIndices(baseIndex, minSimilarity) {
   return neighbors;
 }
 
-async function findGreedyRelateBotPath() {
-  const moveLimit = getMoveLimit();
+async function findGreedyRelateBotPath(moveLimit) {
   const path = [currentPuzzle.start];
   const used = new Set(path);
 
@@ -1128,6 +1185,27 @@ function hasActiveProgress() {
   return currentRecord && !currentRecord.done && currentRecord.path.length > 1;
 }
 
+async function getHardRelateBotPath() {
+  if (!currentPuzzle) return null;
+  const cacheKey = currentPuzzle.key;
+  if (hardPathCache.has(cacheKey)) {
+    return hardPathCache.get(cacheKey);
+  }
+  const path = await findRelateBotPath(
+    getMoveLimit("hard"),
+    "Checking hard path",
+    68,
+    92,
+  );
+  hardPathCache.set(cacheKey, path);
+  return path;
+}
+
+async function canUseHardMode() {
+  const path = await getHardRelateBotPath();
+  return Boolean(path);
+}
+
 function switchKind(kind) {
   if (!["daily", "random", "archive"].includes(kind)) return;
   if (kind !== storage.kind && hasActiveProgress()) {
@@ -1146,12 +1224,35 @@ function switchKind(kind) {
   queuePuzzleLoad();
 }
 
-function switchMode(mode) {
+async function switchMode(mode) {
   if (!MODES[mode]) return;
   if (mode !== storage.mode && hasActiveProgress()) {
     setMessage("Finish, reset, or undo to the start before changing difficulty.", "error");
     focusGuessInput();
     return;
+  }
+  if (mode === "hard" && mode !== storage.mode) {
+    setBootProgress(64, "Checking hard path.");
+    setStatus("Checking hard path");
+    setMessage("Checking whether Hard has a RelateBot path.");
+    try {
+      if (!(await canUseHardMode())) {
+        hideBoot();
+        setStatus("Ready", "ready");
+        setMessage(
+          "Hard is unavailable for this puzzle. RelateBot could not find a hard path.",
+          "error",
+        );
+        focusGuessInput();
+        return;
+      }
+    } catch (error) {
+      hideBoot();
+      setStatus("Ready", "ready");
+      setMessage(error.message || "Could not check Hard for this puzzle.", "error");
+      focusGuessInput();
+      return;
+    }
   }
   storage.mode = mode;
   saveStorage();
@@ -1159,13 +1260,29 @@ function switchMode(mode) {
 }
 
 async function loadPuzzle() {
+  setBootProgress(78, "Loading puzzle.");
   currentPuzzle = await buildPuzzle();
+  let hardUnavailable = false;
+  if (storage.mode === "hard") {
+    setBootProgress(82, "Checking hard path.");
+    if (!(await canUseHardMode())) {
+      storage.mode = "easy";
+      saveStorage();
+      hardUnavailable = true;
+      setBootProgress(90, "Hard unavailable. Loading Easy.");
+    }
+  }
   currentRecord = getRecord();
   render();
   if (currentRecord.done) {
     setMessage(
       currentRecord.status === "won" ? "Solved." : "Game over.",
       currentRecord.status === "won" ? "success" : "error",
+    );
+  } else if (hardUnavailable) {
+    setMessage(
+      "Hard is unavailable for this puzzle. RelateBot could not find a hard path.",
+      "error",
     );
   } else {
     setMessage("Type a word close to your current word. Rejected words do not use a move.");
@@ -1178,12 +1295,19 @@ async function loadPuzzle() {
 }
 
 function queuePuzzleLoad() {
+  setBootProgress(76, "Loading puzzle.");
   setStatus("Loading puzzle");
   setMessage("Loading puzzle.");
-  loadPuzzle().catch((error) => {
-    setStatus("Error", "error");
-    setMessage(error.message || "Could not load that puzzle.", "error");
-  });
+  loadPuzzle()
+    .then(() => {
+      setStatus("Ready", "ready");
+      hideBoot();
+    })
+    .catch((error) => {
+      setStatus("Error", "error");
+      setMessage(error.message || "Could not load that puzzle.", "error");
+      showBootError(error.message || "Could not load that puzzle.");
+    });
 }
 
 function setArchiveDate(dateId) {
@@ -1259,6 +1383,7 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
+  setBootProgress(5, "Loading page.");
   elements.archiveDate.min = START_DATE;
   elements.archiveDate.max = todayId();
   storage.archiveDate = clampDate(storage.archiveDate);
@@ -1267,9 +1392,12 @@ async function init() {
     await loadGameData();
     await loadPuzzle();
     setStatus("Ready", "ready");
+    setBootProgress(100, "Ready.");
+    hideBoot();
   } catch (error) {
     setStatus("Error", "error");
     setMessage(error.message || "Could not prepare the puzzle.", "error");
+    showBootError(error.message || "Could not prepare the puzzle.");
   }
 }
 

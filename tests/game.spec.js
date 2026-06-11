@@ -51,9 +51,10 @@ async function routeTinyGameData(page, overrides = {}) {
     overrides.shard ||
     Buffer.from(new Float32Array([1, 0]).buffer);
 
-  await page.route("**/data/dictionary.txt", (route) =>
-    route.fulfill({ contentType: "text/plain", body: `${dictionaryWords.join("\n")}\n` }),
-  );
+  await page.route("**/data/dictionary.txt", async (route) => {
+    if (overrides.dictionaryGate) await overrides.dictionaryGate;
+    await route.fulfill({ contentType: "text/plain", body: `${dictionaryWords.join("\n")}\n` });
+  });
   await page.route("**/data/blocked-words.json", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify({ words: [] }) }),
   );
@@ -81,6 +82,57 @@ async function routeTinyGameData(page, overrides = {}) {
     route.fulfill({ contentType: "application/octet-stream", body: shard }),
   );
 }
+
+async function routeEmbedVectors(page, vectors) {
+  await page.route("**/api/embed", async (route) => {
+    const body = route.request().postDataJSON();
+    const words = Array.isArray(body.words) ? body.words : [body.word];
+    const normalizedWords = words.map((word) => String(word).trim().toLowerCase());
+    const payloadVectors = Object.fromEntries(
+      normalizedWords.map((word) => [word, vectors[word]]),
+    );
+
+    if (Array.isArray(body.words)) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ vectors: payloadVectors }),
+      });
+      return;
+    }
+
+    const word = normalizedWords[0];
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ word, vector: vectors[word] }),
+    });
+  });
+}
+
+test("shows boot progress before the game is ready", async ({ page }) => {
+  let releaseDictionary;
+  const dictionaryGate = new Promise((resolve) => {
+    releaseDictionary = resolve;
+  });
+  await routeTinyGameData(page, {
+    dictionaryGate,
+    dictionaryWords: [
+      "cat",
+      "dog",
+      ...Array.from({ length: 1000 }, (_, index) => `dummyword${index}`),
+    ],
+  });
+
+  const gotoPromise = page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
+
+  await expect(page.locator("#bootScreen")).toBeVisible();
+  await expect(page.locator("#bootProgress")).toBeVisible();
+  await expect(page.locator("#bootText")).not.toContainText("Ready");
+
+  releaseDictionary();
+  await gotoPromise;
+  await expect(page.locator("#bootScreen")).toBeHidden();
+  await expect(page.locator("#guessInput")).toBeEnabled();
+});
 
 test("plays a mocked puzzle through to completion", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
@@ -197,6 +249,55 @@ test("keeps an in-progress path when difficulty changes are attempted", async ({
   await expect(page.locator("#message")).toContainText("before changing difficulty");
   await expect(page.locator("#limitLabel")).toContainText("Easy max move: 0.67");
   await expect(page.locator("#pathList .path-word")).toContainText(["cat", "bridge"]);
+});
+
+test("does not switch to Hard when RelateBot has no hard path", async ({ page }) => {
+  const dictionaryWords = [
+    "alpha",
+    "beta",
+    ...Array.from({ length: 1000 }, (_, index) => `dummyword${index}`),
+  ];
+  await routeTinyGameData(page, {
+    dictionaryWords,
+    lexicon: {
+      dim: 2,
+      shardSize: 2,
+      words: ["alpha", "beta"],
+      shards: ["data/vectors/000.bin"],
+    },
+    shard: Buffer.from(new Float32Array([1, 0, 0, 1]).buffer),
+  });
+  await page.route("**/api/puzzle?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        date: "2026-06-10",
+        start: "alpha",
+        target: "beta",
+        gap: 1,
+      }),
+    }),
+  );
+  await routeEmbedVectors(page, {
+    alpha: [1, 0],
+    beta: [0, 1],
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#guessInput")).toBeEnabled();
+
+  await page.getByRole("button", { name: "Hard" }).click();
+
+  await expect(page.locator("#message")).toContainText("Hard is unavailable");
+  await expect(page.locator("#limitLabel")).toContainText("Easy max move: 0.67");
+  await expect(page.getByRole("button", { name: "Easy" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByRole("button", { name: "Hard" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 });
 
 test("reports malformed vector metadata instead of crashing", async ({ page }) => {

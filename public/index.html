@@ -10,7 +10,23 @@
     <title>The Relating Game</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
-  <body>
+  <body class="is-loading">
+    <section class="boot-screen" id="bootScreen" aria-busy="true" aria-live="polite">
+      <div class="boot-card">
+        <span class="boot-eyebrow">The Relating Game</span>
+        <strong class="boot-title">Loading puzzle</strong>
+        <progress
+          id="bootProgress"
+          class="boot-progress"
+          max="100"
+          value="5"
+          aria-label="Loading game"
+          aria-describedby="bootText"
+        >5%</progress>
+        <p id="bootText">Loading page.</p>
+      </div>
+    </section>
+
     <header class="site-header">
       <div class="brand-row">
         <h1>The Relating Game</h1>
