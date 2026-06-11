@@ -7,6 +7,11 @@ const SCHEDULE_DAYS = 3660;
 const TARGET_PAIR_GAP = 0.9;
 const MIN_PAIR_GAP = 0.86;
 const MAX_PAIR_GAP = 0.94;
+const MAX_STEPS = 10;
+const MODES = {
+  easy: { gapDivisor: 1.5 },
+  hard: { gapDivisor: 2 },
+};
 const DAILY_OVERRIDES = new Map([
   ["2026-06-10", ["grove", "iodine"]],
 ]);
@@ -55,7 +60,15 @@ function cosineSimilarity(left, right) {
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
-function makeVectorReader(lexicon, shardBuffers) {
+function dotSimilarity(left, right) {
+  let dot = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+  }
+  return dot;
+}
+
+function makeVectorStore(lexicon, shardBuffers) {
   const vectorWords = new Map(lexicon.words.map((word, index) => [word, index]));
   const shards = shardBuffers.map(
     (buffer) =>
@@ -66,23 +79,153 @@ function makeVectorReader(lexicon, shardBuffers) {
       ),
   );
 
-  return function getVector(word) {
-    const index = vectorWords.get(word);
+  function getVectorByIndex(index) {
     const shard = shards[Math.floor(index / lexicon.shardSize)];
     const rowStart = (index % lexicon.shardSize) * lexicon.dim;
     return shard.subarray(rowStart, rowStart + lexicon.dim);
+  }
+
+  function getVector(word) {
+    const index = vectorWords.get(word);
+    if (index === undefined) return null;
+    return getVectorByIndex(index);
+  }
+
+  return {
+    words: lexicon.words,
+    wordIndex: vectorWords,
+    getVector,
+    getVectorByIndex,
   };
 }
 
-function pickPair(dateId, endpoints, getVector) {
+function findRelateBotPath(start, target, gap, mode, vectorStore, blockedWords) {
+  const moveLimit = gap / MODES[mode].gapDivisor;
+  if (gap <= moveLimit + 0.000001) {
+    return [start, target];
+  }
+
+  const shortPath = findShortBridgePath(start, target, moveLimit, vectorStore, blockedWords);
+  if (shortPath) return shortPath;
+
+  return findGreedyRelateBotPath(start, target, moveLimit, vectorStore, blockedWords);
+}
+
+function findShortBridgePath(start, target, moveLimit, vectorStore, blockedWords) {
+  const minSimilarity = 1 - moveLimit - 0.000001;
+  const startIndex = vectorStore.wordIndex.get(start);
+  const targetIndex = vectorStore.wordIndex.get(target);
+  if (startIndex === undefined || targetIndex === undefined) return null;
+
+  const startNeighbors = scanNeighborIndices(startIndex, minSimilarity, vectorStore, blockedWords);
+  const targetNeighbors = scanNeighborIndices(targetIndex, minSimilarity, vectorStore, blockedWords);
+  const targetNeighborSet = new Set(targetNeighbors);
+
+  for (const middle of startNeighbors) {
+    if (targetNeighborSet.has(middle)) {
+      return [start, vectorStore.words[middle], target];
+    }
+  }
+
+  for (const left of startNeighbors) {
+    const leftVector = vectorStore.getVectorByIndex(left);
+    for (const right of targetNeighbors) {
+      if (dotSimilarity(leftVector, vectorStore.getVectorByIndex(right)) >= minSimilarity) {
+        return [start, vectorStore.words[left], vectorStore.words[right], target];
+      }
+    }
+  }
+
+  return null;
+}
+
+function scanNeighborIndices(baseIndex, minSimilarity, vectorStore, blockedWords) {
+  const baseVector = vectorStore.getVectorByIndex(baseIndex);
+  const neighbors = [];
+  for (let index = 0; index < vectorStore.words.length; index += 1) {
+    const word = vectorStore.words[index];
+    if (
+      index !== baseIndex &&
+      !blockedWords.has(word) &&
+      dotSimilarity(baseVector, vectorStore.getVectorByIndex(index)) >= minSimilarity
+    ) {
+      neighbors.push(index);
+    }
+  }
+  return neighbors;
+}
+
+function findGreedyRelateBotPath(start, target, moveLimit, vectorStore, blockedWords) {
+  const path = [start];
+  const used = new Set(path);
+  const targetVector = vectorStore.getVector(target);
+  if (!targetVector) return null;
+
+  while (path.length - 1 < MAX_STEPS) {
+    const from = path[path.length - 1];
+    const fromVector = vectorStore.getVector(from);
+    const currentTargetGap = Math.max(0, 1 - dotSimilarity(fromVector, targetVector));
+    if (currentTargetGap <= moveLimit + 0.000001) {
+      path.push(target);
+      return path;
+    }
+
+    let best = null;
+    for (let index = 0; index < vectorStore.words.length; index += 1) {
+      const word = vectorStore.words[index];
+      if (used.has(word) || word === target || blockedWords.has(word)) continue;
+
+      const vector = vectorStore.getVectorByIndex(index);
+      const stepGap = Math.max(0, 1 - dotSimilarity(fromVector, vector));
+      if (stepGap > moveLimit + 0.000001 || stepGap < 0.01) continue;
+
+      const targetGap = Math.max(0, 1 - dotSimilarity(vector, targetVector));
+      if (targetGap < currentTargetGap - 0.01 && (!best || targetGap < best.targetGap)) {
+        best = { word, targetGap };
+      }
+    }
+
+    if (!best) return null;
+    path.push(best.word);
+    used.add(best.word);
+  }
+
+  return null;
+}
+
+function buildScheduledPair(dateId, start, target, vectorStore) {
+  const gap = 1 - cosineSimilarity(vectorStore.getVector(start), vectorStore.getVector(target));
+  if (gap < MIN_PAIR_GAP || gap > MAX_PAIR_GAP) {
+    throw new Error(`${dateId} pair is outside the target gap band.`);
+  }
+  return { date: dateId, start, target, gap: roundScore(gap) };
+}
+
+function addCachedPaths(pair, vectorStore, blockedWords) {
+  const hardPath = findRelateBotPath(
+    pair.start,
+    pair.target,
+    pair.gap,
+    "hard",
+    vectorStore,
+    blockedWords,
+  );
+  const easyPath =
+    hardPath ||
+    findRelateBotPath(pair.start, pair.target, pair.gap, "easy", vectorStore, blockedWords);
+  return {
+    ...pair,
+    easyPath,
+    hardPath,
+  };
+}
+
+function pickPair(dateId, endpoints, vectorStore, blockedWords) {
   const override = DAILY_OVERRIDES.get(dateId);
   if (override) {
     const [start, target] = override;
-    const gap = 1 - cosineSimilarity(getVector(start), getVector(target));
-    if (gap < MIN_PAIR_GAP || gap > MAX_PAIR_GAP) {
-      throw new Error(`${dateId} override is outside the target gap band.`);
-    }
-    return [dateId, start, target, roundScore(gap)];
+    const pair = buildScheduledPair(dateId, start, target, vectorStore);
+    return addCachedPaths(pair, vectorStore, blockedWords);
   }
 
   const random = mulberry32(hashString(`date:${dateId}`));
@@ -91,11 +234,20 @@ function pickPair(dateId, endpoints, getVector) {
     const target = endpoints[Math.floor(random() * endpoints.length)];
     if (start === target) continue;
 
-    const gap = 1 - cosineSimilarity(getVector(start), getVector(target));
+    const gap = 1 - cosineSimilarity(vectorStore.getVector(start), vectorStore.getVector(target));
     if (gap >= MIN_PAIR_GAP && gap <= MAX_PAIR_GAP) {
-      return [dateId, start, target, roundScore(gap)];
+      const pair = addCachedPaths(
+        { date: dateId, start, target, gap: roundScore(gap) },
+        vectorStore,
+        blockedWords,
+      );
+      if (pair.easyPath) return pair;
     }
   }
+}
+
+function formatPath(pathValue) {
+  return pathValue ? JSON.stringify(pathValue) : "null";
 }
 
 async function main() {
@@ -117,11 +269,14 @@ async function main() {
   const shardBuffers = await Promise.all(
     lexicon.shards.map((shardPath) => readFile(path.join(rootDir, "public", shardPath))),
   );
-  const getVector = makeVectorReader(lexicon, shardBuffers);
+  const vectorStore = makeVectorStore(lexicon, shardBuffers);
 
   const schedule = [];
   for (let offset = 0; offset < SCHEDULE_DAYS; offset += 1) {
-    schedule.push(pickPair(dateAfter(START_DATE, offset), endpoints, getVector));
+    schedule.push(pickPair(dateAfter(START_DATE, offset), endpoints, vectorStore, blockedWords));
+    if ((offset + 1) % 25 === 0) {
+      console.error(`Cached ${offset + 1}/${SCHEDULE_DAYS} daily puzzles.`);
+    }
   }
 
   const lines = [
@@ -129,7 +284,10 @@ async function main() {
     "",
     "export const DAILY_PUZZLES = [",
     ...schedule.map(
-      ([date, start, target, gap]) => `  ["${date}","${start}","${target}",${gap}],`,
+      ({ date, start, target, gap, easyPath, hardPath }) =>
+        `  ["${date}","${start}","${target}",${gap},${formatPath(easyPath)},${formatPath(
+          hardPath,
+        )}],`,
     ),
     "];",
     "",
@@ -138,8 +296,8 @@ async function main() {
     "export function getScheduledDailyPuzzle(dateId) {",
     "  const row = DAILY_PUZZLES_BY_DATE.get(dateId);",
     "  if (!row) return null;",
-    "  const [date, start, target, gap] = row;",
-    "  return { date, start, target, gap };",
+    "  const [date, start, target, gap, easyPath = null, hardPath = null] = row;",
+    "  return { date, start, target, gap, easyPath, hardPath };",
     "}",
   ];
 
@@ -152,6 +310,8 @@ async function main() {
         scheduleDays: SCHEDULE_DAYS,
         first: schedule[0],
         last: schedule[schedule.length - 1],
+        easyPathCount: schedule.filter((row) => row.easyPath).length,
+        hardPathCount: schedule.filter((row) => row.hardPath).length,
       },
       null,
       2,

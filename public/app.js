@@ -257,6 +257,8 @@ function getForcedPair() {
       start: forcedStart,
       target: forcedTarget,
       gap: Number(TEST_PARAMS.get("gap")) || 1,
+      easyPath: [forcedStart, forcedTarget],
+      hardPath: [forcedStart, forcedTarget],
     };
   }
   return null;
@@ -289,6 +291,9 @@ function scoreLocalPair(from, to) {
 }
 
 function validatePuzzlePair(pair) {
+  if (!pair || typeof pair !== "object") {
+    throw new Error("Puzzle data is not valid.");
+  }
   for (const word of [pair.start, pair.target]) {
     if (!isWordShape(word)) {
       throw new Error(`Puzzle word "${word}" is not a valid game word.`);
@@ -303,6 +308,68 @@ function validatePuzzlePair(pair) {
   if (!Number.isFinite(pair.gap) || pair.gap <= 0) {
     throw new Error("Puzzle gap is not valid.");
   }
+}
+
+function normalizeCachedSolutions(pair, start, target) {
+  return Object.fromEntries(
+    Object.keys(MODES).map((mode) => [
+      mode,
+      normalizeCachedSolution(
+        pair.solutions?.[mode] || pair[`${mode}Path`],
+        start,
+        target,
+      ),
+    ]),
+  );
+}
+
+function normalizeCachedSolution(value, start, target) {
+  const source = Array.isArray(value) ? { path: value } : value;
+  if (!source || typeof source !== "object" || !Array.isArray(source.path)) {
+    return null;
+  }
+
+  const path = source.path.map(normalizeTerm);
+  if (
+    path.length < 2 ||
+    path.length > MAX_STEPS + 1 ||
+    path[0] !== start ||
+    path[path.length - 1] !== target ||
+    new Set(path).size !== path.length
+  ) {
+    return null;
+  }
+
+  for (const word of path) {
+    if (
+      !isWordShape(word) ||
+      !dictionary.has(word) ||
+      isBlockedWord(word) ||
+      (!USE_MOCK_MODEL && !vectorWords.has(word))
+    ) {
+      return null;
+    }
+  }
+
+  return {
+    path,
+    scores: normalizeCachedScores(source.scores, path),
+  };
+}
+
+function normalizeCachedScores(scores, path) {
+  if (!Array.isArray(scores) || scores.length !== path.length - 1) {
+    return [];
+  }
+
+  return scores.map((score, index) => ({
+    from: typeof score?.from === "string" ? normalizeTerm(score.from) : path[index],
+    to: typeof score?.to === "string" ? normalizeTerm(score.to) : path[index + 1],
+    similarity: Number.isFinite(score?.similarity) ? roundScore(score.similarity) : 0,
+    gap: Number.isFinite(score?.gap) ? roundScore(score.gap) : 0,
+    targetGap: Number.isFinite(score?.targetGap) ? roundScore(score.targetGap) : 0,
+    at: typeof score?.at === "string" ? score.at : "",
+  }));
 }
 
 async function buildPuzzle() {
@@ -325,16 +392,18 @@ async function buildPuzzle() {
     forcedPair ||
     (kind === "random" ? pickPair(`random:${randomSeed}`) : await fetchDailyPuzzle(date));
   validatePuzzlePair(pair);
+  const start = normalizeTerm(pair.start);
+  const target = normalizeTerm(pair.target);
+  const gap = roundScore(pair.gap || TARGET_PAIR_GAP);
   return {
     kind,
-    date,
+    date: isDateId(pair.date) ? pair.date : date,
     randomSeed,
-    start: pair.start,
-    target: pair.target,
-    gap: roundScore(pair.gap || TARGET_PAIR_GAP),
-    key: `${kind}:${date || randomSeed}:${pair.start}:${pair.target}:${roundScore(
-      pair.gap || TARGET_PAIR_GAP,
-    )}`,
+    start,
+    target,
+    gap,
+    solutions: normalizeCachedSolutions(pair, start, target),
+    key: `${kind}:${date || randomSeed}:${start}:${target}:${gap}`,
   };
 }
 
@@ -836,6 +905,10 @@ function renderStats() {
 async function updateTargetGap() {
   const requestId = ++targetGapRequest;
   const current = currentRecord.path[currentRecord.path.length - 1];
+  if (current === currentPuzzle.start) {
+    renderTargetGap(currentPuzzle.gap);
+    return;
+  }
   elements.targetGap.textContent = "Scoring";
   elements.targetGapBar.style.width = "0%";
   elements.targetGapBar.className = "";
@@ -977,15 +1050,26 @@ async function revealRelateBotSolution() {
   render();
 
   try {
-    const path = await findRelateBotPath(getMoveLimit(), "Finding RelateBot path", 35, 86);
-    if (path) {
+    const cachedSolution = getCachedRelateBotSolution(storage.mode);
+    if (cachedSolution) {
       currentRecord.solution = {
         status: "ready",
-        path,
-        scores: await scoreSolutionPath(path),
+        path: cachedSolution.path,
+        scores: cachedSolution.scores,
       };
-    } else {
+    } else if (currentPuzzle.kind !== "random") {
       currentRecord.solution = { status: "none", path: [], scores: [] };
+    } else {
+      const path = await findRelateBotPath(getMoveLimit(), "Finding RelateBot path", 35, 86);
+      if (path) {
+        currentRecord.solution = {
+          status: "ready",
+          path,
+          scores: await scoreSolutionPath(path),
+        };
+      } else {
+        currentRecord.solution = { status: "none", path: [], scores: [] };
+      }
     }
   } catch (error) {
     setMessage(error.message || "RelateBot could not score this puzzle.", "error");
@@ -1185,8 +1269,26 @@ function hasActiveProgress() {
   return currentRecord && !currentRecord.done && currentRecord.path.length > 1;
 }
 
+function getCachedRelateBotSolution(mode = storage.mode) {
+  return currentPuzzle?.solutions?.[mode] || null;
+}
+
+function needsLiveHardCheck() {
+  return currentPuzzle?.kind === "random" && !getCachedRelateBotSolution("hard");
+}
+
+function hardUnavailableMessage() {
+  return currentPuzzle?.kind === "random"
+    ? "Hard is unavailable for this puzzle. RelateBot could not find a hard path."
+    : "Hard is unavailable for this puzzle. There is no cached hard path.";
+}
+
 async function getHardRelateBotPath() {
   if (!currentPuzzle) return null;
+  const cachedSolution = getCachedRelateBotSolution("hard");
+  if (cachedSolution) return cachedSolution.path;
+  if (currentPuzzle.kind !== "random") return null;
+
   const cacheKey = currentPuzzle.key;
   if (hardPathCache.has(cacheKey)) {
     return hardPathCache.get(cacheKey);
@@ -1232,22 +1334,22 @@ async function switchMode(mode) {
     return;
   }
   if (mode === "hard" && mode !== storage.mode) {
-    setBootProgress(64, "Checking hard path.");
-    setStatus("Checking hard path");
-    setMessage("Checking whether Hard has a RelateBot path.");
+    const shouldCheckLive = needsLiveHardCheck();
+    if (shouldCheckLive) {
+      setBootProgress(64, "Checking hard path.");
+      setStatus("Checking hard path");
+      setMessage("Checking whether Hard has a RelateBot path.");
+    }
     try {
       if (!(await canUseHardMode())) {
-        hideBoot();
+        if (shouldCheckLive) hideBoot();
         setStatus("Ready", "ready");
-        setMessage(
-          "Hard is unavailable for this puzzle. RelateBot could not find a hard path.",
-          "error",
-        );
+        setMessage(hardUnavailableMessage(), "error");
         focusGuessInput();
         return;
       }
     } catch (error) {
-      hideBoot();
+      if (shouldCheckLive) hideBoot();
       setStatus("Ready", "ready");
       setMessage(error.message || "Could not check Hard for this puzzle.", "error");
       focusGuessInput();
@@ -1264,7 +1366,9 @@ async function loadPuzzle() {
   currentPuzzle = await buildPuzzle();
   let hardUnavailable = false;
   if (storage.mode === "hard") {
-    setBootProgress(82, "Checking hard path.");
+    if (needsLiveHardCheck()) {
+      setBootProgress(82, "Checking hard path.");
+    }
     if (!(await canUseHardMode())) {
       storage.mode = "easy";
       saveStorage();
@@ -1280,10 +1384,7 @@ async function loadPuzzle() {
       currentRecord.status === "won" ? "success" : "error",
     );
   } else if (hardUnavailable) {
-    setMessage(
-      "Hard is unavailable for this puzzle. RelateBot could not find a hard path.",
-      "error",
-    );
+    setMessage(hardUnavailableMessage(), "error");
   } else {
     setMessage("Type a word close to your current word. Rejected words do not use a move.");
   }

@@ -78,9 +78,10 @@ async function routeTinyGameData(page, overrides = {}) {
   await page.route("**/data/lexicon.json", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(lexicon) }),
   );
-  await page.route("**/data/vectors/000.bin", (route) =>
-    route.fulfill({ contentType: "application/octet-stream", body: shard }),
-  );
+  await page.route("**/data/vectors/000.bin", (route) => {
+    overrides.onShardRequest?.();
+    return route.fulfill({ contentType: "application/octet-stream", body: shard });
+  });
 }
 
 async function routeEmbedVectors(page, vectors) {
@@ -252,6 +253,7 @@ test("keeps an in-progress path when difficulty changes are attempted", async ({
 });
 
 test("does not switch to Hard when RelateBot has no hard path", async ({ page }) => {
+  let shardRequests = 0;
   const dictionaryWords = [
     "alpha",
     "beta",
@@ -266,6 +268,9 @@ test("does not switch to Hard when RelateBot has no hard path", async ({ page })
       shards: ["data/vectors/000.bin"],
     },
     shard: Buffer.from(new Float32Array([1, 0, 0, 1]).buffer),
+    onShardRequest: () => {
+      shardRequests += 1;
+    },
   });
   await page.route("**/api/puzzle?*", (route) =>
     route.fulfill({
@@ -298,6 +303,66 @@ test("does not switch to Hard when RelateBot has no hard path", async ({ page })
     "aria-pressed",
     "false",
   );
+  expect(shardRequests).toBe(0);
+});
+
+test("uses cached daily RelateBot paths without live path checking", async ({ page }) => {
+  let embedRequests = 0;
+  let shardRequests = 0;
+  await routeTinyGameData(page, {
+    dictionaryWords: [
+      "alpha",
+      "beta",
+      "gamma",
+      ...Array.from({ length: 1000 }, (_, index) => `dummyword${index}`),
+    ],
+    lexicon: {
+      dim: 2,
+      shardSize: 3,
+      words: ["alpha", "beta", "gamma"],
+      shards: ["data/vectors/000.bin"],
+    },
+    shard: Buffer.from(new Float32Array([1, 0, 0, 1, 0.7, 0.7]).buffer),
+    onShardRequest: () => {
+      shardRequests += 1;
+    },
+  });
+  await page.route("**/api/puzzle?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        date: "2026-06-10",
+        start: "alpha",
+        target: "beta",
+        gap: 1,
+        easyPath: ["alpha", "gamma", "beta"],
+        hardPath: null,
+      }),
+    }),
+  );
+  await page.route("**/api/embed", (route) => {
+    embedRequests += 1;
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "embed should not be called" }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#guessInput")).toBeEnabled();
+  await expect(page.locator("#targetGap")).toHaveText("1.00 away");
+
+  await page.getByRole("button", { name: "Give up" }).click();
+
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
+  await expect(page.locator("#solutionPathList .path-word")).toContainText([
+    "alpha",
+    "gamma",
+    "beta",
+  ]);
+  expect(embedRequests).toBe(0);
+  expect(shardRequests).toBe(0);
 });
 
 test("reports malformed vector metadata instead of crashing", async ({ page }) => {
@@ -347,6 +412,10 @@ test("loads the daily puzzle from the server API", async ({ page, request }) => 
   const response = await request.get(`/api/puzzle?date=${today}`);
   expect(response.ok()).toBeTruthy();
   const puzzle = await response.json();
+  expect(Array.isArray(puzzle.easyPath)).toBeTruthy();
+  expect(puzzle.easyPath[0]).toBe(puzzle.start);
+  expect(puzzle.easyPath.at(-1)).toBe(puzzle.target);
+  expect(puzzle.hardPath === null || Array.isArray(puzzle.hardPath)).toBeTruthy();
 
   await page.goto("/?mockModel=1");
 

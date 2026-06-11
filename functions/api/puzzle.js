@@ -24,6 +24,8 @@ export async function onRequestGet({ request, env }) {
     start: puzzle.start,
     target: puzzle.target,
     gap: puzzle.gap,
+    easyPath: Array.isArray(puzzle.easyPath) ? puzzle.easyPath : null,
+    hardPath: Array.isArray(puzzle.hardPath) ? puzzle.hardPath : null,
   });
 }
 
