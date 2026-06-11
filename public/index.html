@@ -15,7 +15,7 @@
       <div class="brand-row">
         <h1>The Relating Game</h1>
       </div>
-      <div class="sr-only" id="modelStatus" aria-live="polite">Loading</div>
+      <div class="status-line" id="modelStatus" role="status">Loading word list</div>
     </header>
 
     <main class="shell">
@@ -40,10 +40,10 @@
         <button class="quiet-button" id="newRandom" type="button" hidden>New random</button>
       </section>
 
-      <section class="game-board" aria-live="polite">
+      <section class="game-board">
         <div class="word-grid">
           <div class="word-tile">
-            <span>Start</span>
+            <span id="currentWordLabel">Start</span>
             <strong id="startWord">...</strong>
           </div>
           <div class="word-tile target">
@@ -53,48 +53,53 @@
         </div>
 
         <p class="context-line" id="puzzleSummary">
-          Find a path in 10 steps.
+          Find a path in 10 moves.
         </p>
 
         <div class="meter-block">
           <div class="meter-label">
-            <span>Gap to target</span>
+            <span>Progress to target</span>
             <strong id="targetGap">...</strong>
           </div>
           <div class="meter" aria-hidden="true">
             <span id="targetGapBar"></span>
+            <i id="limitMarker"></i>
           </div>
+          <p class="meter-help">Lower distance is better. Cross the marker and the target is reachable.</p>
         </div>
 
+        <ol class="path-chips" id="pathChips" aria-label="Current path"></ol>
+
         <form class="guess-form" id="guessForm" autocomplete="off">
-          <label class="sr-only" for="guessInput">Next word</label>
+          <label class="guess-label" for="guessInput">Next word</label>
           <input
             id="guessInput"
             name="guess"
             type="text"
             inputmode="text"
-            placeholder="Enter a dictionary word"
+            placeholder="Type a related word"
             maxlength="15"
             autocapitalize="none"
             spellcheck="false"
+            aria-describedby="message puzzleSummary"
             disabled
           >
-          <button id="submitGuess" type="submit" disabled>Try</button>
+          <button id="submitGuess" type="submit" disabled>Try word</button>
         </form>
 
-        <p class="message" id="message">Preparing today's puzzle.</p>
+        <p class="message" id="message" role="status">Loading word list.</p>
 
         <div class="rule-line">
           <span id="puzzleLabel">Daily</span>
-          <span id="startGapLabel">Start gap: ...</span>
-          <span id="limitLabel">Gap limit: ...</span>
+          <span id="startGapLabel">Starting distance: ...</span>
+          <span id="limitLabel">Max move: ...</span>
           <span id="stepLabel">0/10</span>
         </div>
 
         <section class="result-panel" id="resultPanel" hidden>
           <div class="section-header">
             <h2 id="resultTitle">Solved</h2>
-            <button class="quiet-button" id="shareResult" type="button">Share</button>
+            <button class="quiet-button" id="shareResult" type="button">Copy result</button>
           </div>
           <p id="resultText"></p>
           <p id="resultSolution"></p>
@@ -119,33 +124,33 @@
             <tr>
               <th scope="col">#</th>
               <th scope="col">Word</th>
-              <th scope="col">Step gap</th>
-              <th scope="col">Target gap</th>
-              <th scope="col">Read</th>
+              <th scope="col">Move</th>
+              <th scope="col">Target</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody id="pathList"></tbody>
         </table>
       </section>
 
-      <section class="solution-section" id="solutionSection" hidden>
-        <div class="section-header">
+      <details class="solution-section" id="solutionSection" hidden>
+        <summary class="section-header">
           <h2>RelateBot's solution</h2>
           <span class="solution-status" id="solutionStatus">Waiting</span>
-        </div>
+        </summary>
         <table class="guess-table">
           <thead>
             <tr>
               <th scope="col">#</th>
               <th scope="col">Word</th>
-              <th scope="col">Step gap</th>
-              <th scope="col">Target gap</th>
-              <th scope="col">Read</th>
+              <th scope="col">Move</th>
+              <th scope="col">Target</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody id="solutionPathList"></tbody>
         </table>
-      </section>
+      </details>
 
       <section class="stats-section">
         <div>
@@ -169,10 +174,9 @@
       <details class="rules">
         <summary>Rules</summary>
         <p>
-          Move from the start word to the target word. Each submitted step must
-          keep semantic gap under the current limit. Easy allows two thirds of
-          the start-to-target gap per move; Hard allows half. You have 10
-          steps.
+          Move from the start word to the target word. Each submitted word must
+          be close enough to your current word. Easy allows a longer move;
+          Hard allows a shorter one. You have 10 moves.
         </p>
       </details>
     </main>

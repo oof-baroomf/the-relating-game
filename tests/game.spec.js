@@ -91,12 +91,15 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
   await expect(page.locator("#modelStatus")).toHaveText("Ready");
 
   await page.getByRole("button", { name: "Hard" }).click();
-  await expect(page.locator("#limitLabel")).toContainText("Hard move limit: 0.50");
+  await expect(page.locator("#limitLabel")).toContainText("Hard max move: 0.50");
   await expect(page.locator("#guessInput")).toBeFocused();
 
   await page.locator("#guessInput").fill("bridge");
-  await page.getByRole("button", { name: "Try" }).click();
+  await page.getByRole("button", { name: "Try word" }).click();
   await expect(page.locator("#message")).toContainText("Accepted");
+  await expect(page.locator("#currentWordLabel")).toHaveText("Current");
+  await expect(page.locator("#startWord")).toHaveText("bridge");
+  await expect(page.locator("#pathChips li")).toHaveCount(2);
   await expect(page.locator("#guessInput")).toBeFocused();
 
   await page.locator("#guessInput").fill("dog");
@@ -104,7 +107,7 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
 
   await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultText")).toContainText("Hard 2/10");
-  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
   await expect(page.locator("#solutionSection")).toBeVisible();
   await expect(page.locator("#solutionStatus")).toContainText("/10");
   await expect(page.locator("#shareResult")).toBeEnabled();
@@ -113,13 +116,13 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
   );
 });
 
-test("rejects a semantic gap over the selected limit", async ({ page }) => {
+test("rejects a semantic distance over the selected limit", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
   await page.locator("#guessInput").fill("rejecting");
-  await page.getByRole("button", { name: "Try" }).click();
+  await page.getByRole("button", { name: "Try word" }).click();
 
-  await expect(page.locator("#message")).toContainText("is over the");
+  await expect(page.locator("#message")).toContainText("Too far from cat");
   await expect(page.locator(".path-row")).toHaveCount(1);
 });
 
@@ -127,9 +130,9 @@ test("rejects guesses outside the dictionary", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
   await page.locator("#guessInput").fill("notawordzz");
-  await page.getByRole("button", { name: "Try" }).click();
+  await page.getByRole("button", { name: "Try word" }).click();
 
-  await expect(page.locator("#message")).toContainText("not in the game dictionary");
+  await expect(page.locator("#message")).toContainText("not in the word list");
   await expect(page.locator(".path-row")).toHaveCount(1);
 });
 
@@ -137,7 +140,7 @@ test("rejects blocked words", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
   await page.locator("#guessInput").fill("sexuality");
-  await page.getByRole("button", { name: "Try" }).click();
+  await page.getByRole("button", { name: "Try word" }).click();
 
   await expect(page.locator("#message")).toContainText("not allowed");
   await expect(page.locator(".path-row")).toHaveCount(1);
@@ -159,7 +162,7 @@ test("ends after ten accepted non-target steps", async ({ page }) => {
     "glass",
   ]) {
     await page.locator("#guessInput").fill(word);
-    await page.getByRole("button", { name: "Try" }).click();
+    await page.getByRole("button", { name: "Try word" }).click();
   }
 
   await expect(page.locator("#message")).toContainText("Out of steps");
@@ -178,10 +181,22 @@ test("give up ends the game and reveals RelateBot's solution", async ({ page }) 
   await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultTitle")).toHaveText("Gave up");
   await expect(page.locator("#resultText")).toContainText("Easy X/10");
-  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
   await expect(page.locator("#solutionSection")).toBeVisible();
   await expect(page.locator("#solutionPathList .path-word")).toContainText(["cat", "dog"]);
   await expect(page.locator("#guessInput")).toBeDisabled();
+});
+
+test("keeps an in-progress path when difficulty changes are attempted", async ({ page }) => {
+  await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
+
+  await page.locator("#guessInput").fill("bridge");
+  await page.getByRole("button", { name: "Try word" }).click();
+  await page.getByRole("button", { name: "Hard" }).click();
+
+  await expect(page.locator("#message")).toContainText("before changing difficulty");
+  await expect(page.locator("#limitLabel")).toContainText("Easy max move: 0.67");
+  await expect(page.locator("#pathList .path-word")).toContainText(["cat", "bridge"]);
 });
 
 test("reports malformed vector metadata instead of crashing", async ({ page }) => {
@@ -236,7 +251,9 @@ test("loads the daily puzzle from the server API", async ({ page, request }) => 
 
   await expect(page.locator("#startWord")).toHaveText(puzzle.start);
   await expect(page.locator("#targetWord")).toHaveText(puzzle.target);
-  await expect(page.locator("#startGapLabel")).toHaveText(`Start gap: ${puzzle.gap.toFixed(2)}`);
+  await expect(page.locator("#startGapLabel")).toHaveText(
+    `Starting distance: ${puzzle.gap.toFixed(2)}`,
+  );
   await expect(page.locator("#guessInput")).toBeFocused();
 });
 
