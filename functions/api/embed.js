@@ -9,7 +9,8 @@ export async function onRequestPost({ request, env }) {
     return json({ error: "Expected a JSON request body." }, 400);
   }
 
-  const words = Array.isArray(body.words) ? body.words : [body.word];
+  const isBatchRequest = Array.isArray(body.words);
+  const words = isBatchRequest ? body.words : [body.word];
   const normalizedWords = [...new Set(words.map(normalizeTerm).filter(Boolean))];
   if (normalizedWords.length === 0 || normalizedWords.length > 12) {
     return json({ error: "Send 1 to 12 words." }, 400);
@@ -41,7 +42,7 @@ export async function onRequestPost({ request, env }) {
     return json({ error: error.message || "Vector data is not available." }, 500);
   }
 
-  if (normalizedWords.length === 1) {
+  if (!isBatchRequest && normalizedWords.length === 1) {
     return json({ word: normalizedWords[0], vector: vectors[normalizedWords[0]] });
   }
   return json({ vectors });

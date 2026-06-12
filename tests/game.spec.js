@@ -453,6 +453,18 @@ test("returns dictionary word vectors through the Pages Function", async ({ requ
   expect(payload.vector.some((value) => value !== 0)).toBeTruthy();
 });
 
+test("returns batch-shaped vectors for a one-word batch request", async ({ request }) => {
+  const response = await request.post("/api/embed", {
+    data: { words: ["zymurgy"] },
+  });
+  expect(response.ok()).toBeTruthy();
+
+  const payload = await response.json();
+  expect(payload.vectors.zymurgy).toHaveLength(300);
+  expect(payload.word).toBeUndefined();
+  expect(payload.vector).toBeUndefined();
+});
+
 test("uses real fastText vectors for generated endpoint words", async ({ request }) => {
   const response = await request.post("/api/embed", {
     data: { words: ["sonny", "another"] },
