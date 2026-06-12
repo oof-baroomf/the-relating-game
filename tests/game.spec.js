@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
 import { isPacificMidnight, pacificDateId } from "../public/shared/pacific-time.js";
+import { DAILY_PUZZLES } from "../src/shared/daily-schedule.js";
 
 function cosineSimilarity(left, right) {
   let dot = 0;
@@ -31,6 +32,17 @@ test("daily worker cron covers Pacific midnight in daylight and standard time", 
   expect(isPacificMidnight("2026-06-10T08:00:00Z")).toBe(false);
   expect(isPacificMidnight("2026-12-10T07:00:00Z")).toBe(false);
   expect(isPacificMidnight("2026-12-10T08:00:00Z")).toBe(true);
+});
+
+test("scheduled daily puzzles all have cached hard paths", () => {
+  for (const [date, start, target, gap, easyPath, hardPath] of DAILY_PUZZLES) {
+    expect(gap, `${date} gap`).toBeGreaterThan(0);
+    expect(Array.isArray(easyPath), `${date} easy path`).toBeTruthy();
+    expect(Array.isArray(hardPath), `${date} hard path`).toBeTruthy();
+    expect(hardPath[0], `${date} hard path start`).toBe(start);
+    expect(hardPath.at(-1), `${date} hard path target`).toBe(target);
+    expect(hardPath.length, `${date} hard path length`).toBeLessThanOrEqual(11);
+  }
 });
 
 async function routeTinyGameData(page, overrides = {}) {
@@ -415,7 +427,9 @@ test("loads the daily puzzle from the server API", async ({ page, request }) => 
   expect(Array.isArray(puzzle.easyPath)).toBeTruthy();
   expect(puzzle.easyPath[0]).toBe(puzzle.start);
   expect(puzzle.easyPath.at(-1)).toBe(puzzle.target);
-  expect(puzzle.hardPath === null || Array.isArray(puzzle.hardPath)).toBeTruthy();
+  expect(Array.isArray(puzzle.hardPath)).toBeTruthy();
+  expect(puzzle.hardPath[0]).toBe(puzzle.start);
+  expect(puzzle.hardPath.at(-1)).toBe(puzzle.target);
 
   await page.goto("/?mockModel=1");
 

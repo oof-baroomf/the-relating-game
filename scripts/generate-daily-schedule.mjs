@@ -202,7 +202,7 @@ function buildScheduledPair(dateId, start, target, vectorStore) {
 }
 
 function addCachedPaths(pair, vectorStore, blockedWords) {
-  const hardPath = findRelateBotPath(
+  const candidateHardPath = findRelateBotPath(
     pair.start,
     pair.target,
     pair.gap,
@@ -210,9 +210,16 @@ function addCachedPaths(pair, vectorStore, blockedWords) {
     vectorStore,
     blockedWords,
   );
-  const easyPath =
-    hardPath ||
-    findRelateBotPath(pair.start, pair.target, pair.gap, "easy", vectorStore, blockedWords);
+  const hardPath = isValidCachedPath(
+    candidateHardPath,
+    pair,
+    "hard",
+    vectorStore,
+    blockedWords,
+  )
+    ? candidateHardPath
+    : null;
+  const easyPath = hardPath;
   return {
     ...pair,
     easyPath,
@@ -220,12 +227,39 @@ function addCachedPaths(pair, vectorStore, blockedWords) {
   };
 }
 
+function isValidCachedPath(pathValue, pair, mode, vectorStore, blockedWords) {
+  if (!Array.isArray(pathValue)) return false;
+  if (pathValue.length < 2 || pathValue.length > MAX_STEPS + 1) return false;
+  if (pathValue[0] !== pair.start || pathValue[pathValue.length - 1] !== pair.target) {
+    return false;
+  }
+  if (new Set(pathValue).size !== pathValue.length) return false;
+
+  for (const word of pathValue) {
+    if (blockedWords.has(word) || !vectorStore.getVector(word)) return false;
+  }
+
+  const moveLimit = pair.gap / MODES[mode].gapDivisor;
+  for (let index = 1; index < pathValue.length; index += 1) {
+    const from = vectorStore.getVector(pathValue[index - 1]);
+    const to = vectorStore.getVector(pathValue[index]);
+    const stepGap = Math.max(0, 1 - cosineSimilarity(from, to));
+    if (stepGap > moveLimit + 0.000001) return false;
+  }
+
+  return true;
+}
+
 function pickPair(dateId, endpoints, vectorStore, blockedWords) {
   const override = DAILY_OVERRIDES.get(dateId);
   if (override) {
     const [start, target] = override;
     const pair = buildScheduledPair(dateId, start, target, vectorStore);
-    return addCachedPaths(pair, vectorStore, blockedWords);
+    const cachedPair = addCachedPaths(pair, vectorStore, blockedWords);
+    if (!cachedPair.hardPath) {
+      throw new Error(`${dateId} override does not have a hard RelateBot path.`);
+    }
+    return cachedPair;
   }
 
   const random = mulberry32(hashString(`date:${dateId}`));
@@ -241,7 +275,7 @@ function pickPair(dateId, endpoints, vectorStore, blockedWords) {
         vectorStore,
         blockedWords,
       );
-      if (pair.easyPath) return pair;
+      if (pair.hardPath) return pair;
     }
   }
 }
