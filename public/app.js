@@ -136,6 +136,26 @@ function saveStorage() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
 }
 
+function applyStartupRoute() {
+  const requestedKind = TEST_PARAMS.get("kind");
+  if (["daily", "random", "archive"].includes(requestedKind)) {
+    storage.kind = requestedKind;
+    if (requestedKind === "archive") {
+      storage.archiveDate = clampDate(TEST_PARAMS.get("date") || storage.archiveDate);
+    }
+    if (requestedKind === "random") {
+      storage.randomSeed = TEST_PARAMS.get("seed") || storage.randomSeed || createRandomSeed();
+    }
+    saveStorage();
+    return;
+  }
+
+  if (window.location.pathname === "/" || window.location.pathname.endsWith("/index.html")) {
+    storage.kind = "daily";
+    saveStorage();
+  }
+}
+
 function setBootProgress(value, text, tone = "") {
   elements.bootScreen.hidden = false;
   elements.bootScreen.setAttribute("aria-busy", tone === "error" ? "false" : "true");
@@ -1484,6 +1504,7 @@ async function init() {
   elements.archiveDate.min = START_DATE;
   elements.archiveDate.max = todayId();
   storage.archiveDate = clampDate(storage.archiveDate);
+  applyStartupRoute();
 
   try {
     await loadGameData();

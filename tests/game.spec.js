@@ -150,6 +150,62 @@ test("shows boot progress before the game is ready", async ({ page }) => {
   await expect(page.locator("#guessInput")).toBeEnabled();
 });
 
+test("plain root starts on Daily even when Random was saved", async ({ page }) => {
+  let shardRequests = 0;
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "the-relating-game:v3",
+      JSON.stringify({ kind: "random", randomSeed: "stale-random", mode: "easy" }),
+    );
+  });
+  await routeTinyGameData(page, {
+    dictionaryWords: [
+      "alpha",
+      "beta",
+      ...Array.from({ length: 1000 }, (_, index) => `dummyword${index}`),
+    ],
+    lexicon: {
+      dim: 2,
+      shardSize: 2,
+      words: ["alpha", "beta"],
+      shards: ["data/vectors/000.bin"],
+    },
+    shard: Buffer.from(new Float32Array([1, 0, 0, 1]).buffer),
+    onShardRequest: () => {
+      shardRequests += 1;
+    },
+  });
+  await page.route("**/api/puzzle?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        date: "2026-06-10",
+        start: "alpha",
+        target: "beta",
+        gap: 1,
+        easyPath: ["alpha", "beta"],
+        hardPath: ["alpha", "beta"],
+      }),
+    }),
+  );
+
+  await page.goto("/");
+
+  await expect(page.locator("#guessInput")).toBeEnabled();
+  await expect(page.locator("#startWord")).toHaveText("alpha");
+  await expect(page.locator("#targetWord")).toHaveText("beta");
+  await expect(page.getByRole("button", { name: "Daily" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator("#newRandom")).toBeHidden();
+  const savedKind = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("the-relating-game:v3")).kind,
+  );
+  expect(savedKind).toBe("daily");
+  expect(shardRequests).toBe(0);
+});
+
 test("plays a mocked puzzle through to completion", async ({ page }) => {
   await page.goto("/?mockModel=1&start=cat&target=dog&gap=1");
 
