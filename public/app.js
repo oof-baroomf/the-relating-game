@@ -825,7 +825,6 @@ function renderSolution() {
   const solution = currentRecord.solution;
   elements.solutionSection.hidden = !solution;
   if (!solution) {
-    elements.solutionSection.open = false;
     elements.solutionStatus.textContent = "Waiting";
     elements.solutionPathList.replaceChildren();
     elements.resultSolution.textContent = "";
@@ -833,15 +832,12 @@ function renderSolution() {
   }
 
   if (solution.status === "searching") {
-    elements.solutionSection.open = true;
     elements.solutionStatus.textContent = "Searching";
     elements.resultSolution.textContent = "RelateBot is looking for a path.";
   } else if (solution.status === "ready") {
-    elements.solutionSection.open = false;
     elements.solutionStatus.textContent = `${Math.max(0, solution.path.length - 1)}/${MAX_STEPS}`;
-    elements.resultSolution.textContent = "RelateBot found a path. Open it below.";
+    elements.resultSolution.textContent = `RelateBot's solution: ${solution.path.join(" -> ")}`;
   } else {
-    elements.solutionSection.open = false;
     elements.solutionStatus.textContent = "No path found";
     elements.resultSolution.textContent = "RelateBot did not find a valid path.";
   }

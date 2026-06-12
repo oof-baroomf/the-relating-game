@@ -39,6 +39,9 @@ test("scheduled daily puzzles all have cached hard paths", () => {
     expect(gap, `${date} gap`).toBeGreaterThan(0);
     expect(Array.isArray(easyPath), `${date} easy path`).toBeTruthy();
     expect(Array.isArray(hardPath), `${date} hard path`).toBeTruthy();
+    expect(easyPath[0], `${date} easy path start`).toBe(start);
+    expect(easyPath.at(-1), `${date} easy path target`).toBe(target);
+    expect(easyPath.length, `${date} easy path length`).toBeLessThanOrEqual(11);
     expect(hardPath[0], `${date} hard path start`).toBe(start);
     expect(hardPath.at(-1), `${date} hard path target`).toBe(target);
     expect(hardPath.length, `${date} hard path length`).toBeLessThanOrEqual(11);
@@ -172,7 +175,7 @@ test("plays a mocked puzzle through to completion", async ({ page }) => {
 
   await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultText")).toContainText("Hard 2/10");
-  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution: cat -> dog");
   await expect(page.locator("#solutionSection")).toBeVisible();
   await expect(page.locator("#solutionStatus")).toContainText("/10");
   await expect(page.locator("#shareResult")).toBeEnabled();
@@ -246,7 +249,7 @@ test("give up ends the game and reveals RelateBot's solution", async ({ page }) 
   await expect(page.locator("#resultPanel")).toBeVisible();
   await expect(page.locator("#resultTitle")).toHaveText("Gave up");
   await expect(page.locator("#resultText")).toContainText("Easy X/10");
-  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
+  await expect(page.locator("#resultSolution")).toContainText("RelateBot's solution: cat -> dog");
   await expect(page.locator("#solutionSection")).toBeVisible();
   await expect(page.locator("#solutionPathList .path-word")).toContainText(["cat", "dog"]);
   await expect(page.locator("#guessInput")).toBeDisabled();
@@ -367,7 +370,9 @@ test("uses cached daily RelateBot paths without live path checking", async ({ pa
 
   await page.getByRole("button", { name: "Give up" }).click();
 
-  await expect(page.locator("#resultSolution")).toContainText("RelateBot found");
+  await expect(page.locator("#resultSolution")).toContainText(
+    "RelateBot's solution: alpha -> gamma -> beta",
+  );
   await expect(page.locator("#solutionPathList .path-word")).toContainText([
     "alpha",
     "gamma",

@@ -589,11 +589,6 @@ input[type="date"] {
   font-weight: 850;
 }
 
-.solution-section summary {
-  cursor: pointer;
-  list-style-position: inside;
-}
-
 .stats-section {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

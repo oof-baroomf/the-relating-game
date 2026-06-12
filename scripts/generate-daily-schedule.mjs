@@ -202,6 +202,14 @@ function buildScheduledPair(dateId, start, target, vectorStore) {
 }
 
 function addCachedPaths(pair, vectorStore, blockedWords) {
+  const candidateEasyPath = findRelateBotPath(
+    pair.start,
+    pair.target,
+    pair.gap,
+    "easy",
+    vectorStore,
+    blockedWords,
+  );
   const candidateHardPath = findRelateBotPath(
     pair.start,
     pair.target,
@@ -219,7 +227,15 @@ function addCachedPaths(pair, vectorStore, blockedWords) {
   )
     ? candidateHardPath
     : null;
-  const easyPath = hardPath;
+  const easyPath = isValidCachedPath(
+    candidateEasyPath,
+    pair,
+    "easy",
+    vectorStore,
+    blockedWords,
+  )
+    ? candidateEasyPath
+    : hardPath;
   return {
     ...pair,
     easyPath,
